@@ -6,15 +6,15 @@ steps:
   # FRONTEND BUILD & DEPLOY
   # ============================================
 
-  # Build frontend with secrets
-  - name: 'gcr.io/cloud-builders/docker'
+  # Build frontend with secrets (using cloud-sdk which has both gcloud and docker)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
         # Get secrets
-        SUPABASE_URL=$(gcloud secrets versions access latest --secret=SUPABASE_URL)
-        SUPABASE_ANON=$(gcloud secrets versions access latest --secret=SUPABASE_SECRET)
+        SUPABASE_URL=$(gcloud secrets versions access latest --secret=SUPABASE_URL --project=$PROJECT_ID)
+        SUPABASE_ANON=$(gcloud secrets versions access latest --secret=SUPABASE_SECRET --project=$PROJECT_ID)
 
         echo "Building frontend with Supabase URL: $${SUPABASE_URL}"
 
