@@ -4,7 +4,16 @@ import type { GenerationJob, JobStatus } from './types.js';
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY!;
 
-export const supabase = createClient(supabaseUrl, supabaseServiceKey);
+// Log configuration status at startup
+console.log('[Supabase] URL configured:', !!supabaseUrl);
+console.log('[Supabase] Service key configured:', !!supabaseServiceKey);
+
+export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+  },
+});
 
 /**
  * Fetch the next available job to process
@@ -20,7 +29,12 @@ export async function claimNextJob(jobTypes: string[]): Promise<GenerationJob | 
     .order('created_at', { ascending: true })
     .limit(1);
 
-  if (error || !jobs || jobs.length === 0) {
+  if (error) {
+    console.error('[Supabase] Error fetching jobs:', error.message, error.code);
+    return null;
+  }
+
+  if (!jobs || jobs.length === 0) {
     return null;
   }
 
