@@ -6,14 +6,15 @@ steps:
   # FRONTEND BUILD & DEPLOY
   # ============================================
 
-  # Read SUPABASE_URL from Secret Manager
+  # Read secrets from Secret Manager
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
         gcloud secrets versions access latest --secret=SUPABASE_URL > /workspace/supabase_url.txt
-    id: 'get-supabase-url'
+        gcloud secrets versions access latest --secret=SUPABASE_SECRET > /workspace/supabase_anon.txt
+    id: 'get-secrets'
 
   # Build frontend Docker image
   - name: 'gcr.io/cloud-builders/docker'
@@ -23,12 +24,12 @@ steps:
       - |
         docker build \
           --build-arg VITE_SUPABASE_URL=$(cat /workspace/supabase_url.txt) \
-          --build-arg VITE_SUPABASE_ANON_KEY=${_SUPABASE_ANON_KEY} \
+          --build-arg VITE_SUPABASE_ANON_KEY=$(cat /workspace/supabase_anon.txt) \
           -t gcr.io/$PROJECT_ID/rankforge-frontend:$COMMIT_SHA \
           -t gcr.io/$PROJECT_ID/rankforge-frontend:latest \
           .
     id: 'build-frontend'
-    waitFor: ['get-supabase-url']
+    waitFor: ['get-secrets']
 
   # Push frontend image
   - name: 'gcr.io/cloud-builders/docker'
@@ -130,7 +131,3 @@ options:
 
 timeout: '1800s'
 
-# Substitution variables - pass anon key when running:
-# gcloud builds submit --substitutions=_SUPABASE_ANON_KEY="eyJxxx"
-substitutions:
-  _SUPABASE_ANON_KEY: ''
