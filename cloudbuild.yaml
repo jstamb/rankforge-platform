@@ -6,44 +6,30 @@ steps:
   # FRONTEND BUILD & DEPLOY
   # ============================================
 
-  # Read secrets from Secret Manager
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        gcloud secrets versions access latest --secret=SUPABASE_URL > /workspace/supabase_url.txt
-        gcloud secrets versions access latest --secret=SUPABASE_SECRET > /workspace/supabase_anon.txt
-        echo "SUPABASE_URL: $(cat /workspace/supabase_url.txt)"
-        echo "SUPABASE_ANON loaded"
-    id: 'get-secrets'
-
-  # Build frontend Docker image
+  # Build frontend with secrets
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
+        # Get secrets
+        SUPABASE_URL=$(gcloud secrets versions access latest --secret=SUPABASE_URL)
+        SUPABASE_ANON=$(gcloud secrets versions access latest --secret=SUPABASE_SECRET)
+
+        echo "Building frontend with Supabase URL: $${SUPABASE_URL}"
+
+        # Build image
         docker build \
-          --build-arg VITE_SUPABASE_URL=$$(cat /workspace/supabase_url.txt) \
-          --build-arg VITE_SUPABASE_ANON_KEY=$$(cat /workspace/supabase_anon.txt) \
-          -t gcr.io/${PROJECT_ID}/rankforge-frontend:${COMMIT_SHA} \
-          -t gcr.io/${PROJECT_ID}/rankforge-frontend:latest \
+          --build-arg VITE_SUPABASE_URL="$${SUPABASE_URL}" \
+          --build-arg VITE_SUPABASE_ANON_KEY="$${SUPABASE_ANON}" \
+          -t gcr.io/$PROJECT_ID/rankforge-frontend:latest \
           .
-    env:
-      - 'PROJECT_ID=$PROJECT_ID'
-      - 'COMMIT_SHA=$COMMIT_SHA'
     id: 'build-frontend'
-    waitFor: ['get-secrets']
 
   # Push frontend image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/rankforge-frontend:$COMMIT_SHA']
-    id: 'push-frontend'
-    waitFor: ['build-frontend']
-
-  - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/rankforge-frontend:latest']
+    id: 'push-frontend'
     waitFor: ['build-frontend']
 
   # Deploy frontend to Cloud Run
@@ -54,7 +40,7 @@ steps:
       - 'deploy'
       - 'rankforge-frontend'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/rankforge-frontend:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/rankforge-frontend:latest'
       - '--region'
       - 'us-central1'
       - '--platform'
@@ -80,20 +66,14 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'gcr.io/$PROJECT_ID/rankforge-workers:$COMMIT_SHA'
-      - '-t'
       - 'gcr.io/$PROJECT_ID/rankforge-workers:latest'
       - './workers'
     id: 'build-workers'
 
   # Push workers image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/rankforge-workers:$COMMIT_SHA']
-    id: 'push-workers'
-    waitFor: ['build-workers']
-
-  - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/rankforge-workers:latest']
+    id: 'push-workers'
     waitFor: ['build-workers']
 
   # Deploy workers to Cloud Run
@@ -104,7 +84,7 @@ steps:
       - 'deploy'
       - 'rankforge-workers'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/rankforge-workers:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/rankforge-workers:latest'
       - '--region'
       - 'us-central1'
       - '--platform'
@@ -125,14 +105,7 @@ steps:
     id: 'deploy-workers'
     waitFor: ['push-workers']
 
-images:
-  - 'gcr.io/$PROJECT_ID/rankforge-frontend:$COMMIT_SHA'
-  - 'gcr.io/$PROJECT_ID/rankforge-frontend:latest'
-  - 'gcr.io/$PROJECT_ID/rankforge-workers:$COMMIT_SHA'
-  - 'gcr.io/$PROJECT_ID/rankforge-workers:latest'
-
 options:
   logging: CLOUD_LOGGING_ONLY
 
 timeout: '1800s'
-
