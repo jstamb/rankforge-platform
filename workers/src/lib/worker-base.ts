@@ -61,12 +61,15 @@ export abstract class BaseWorker {
       }
 
       // Try to claim a job
+      console.log(`[${this.config.name}] Polling for jobs: ${this.config.jobTypes.join(', ')}`);
       const job = await claimNextJob(this.config.jobTypes);
 
       if (job) {
         console.log(`[${this.config.name}] Claimed job ${job.id}`);
         this.activeJobs.set(job.id, job);
         this.processJob(job);
+      } else {
+        console.log(`[${this.config.name}] No jobs found`);
       }
     } catch (error) {
       console.error(`[${this.config.name}] Poll error:`, error);
