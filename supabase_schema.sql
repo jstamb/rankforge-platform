@@ -695,6 +695,39 @@ CREATE POLICY "Users can delete own jobs"
   ON public.generation_jobs FOR DELETE
   USING (auth.uid() = user_id);
 
+-- Service role policies for workers (service_role key bypasses RLS by default,
+-- but these policies ensure access even if that behavior changes)
+CREATE POLICY "Service role can view all jobs"
+  ON public.generation_jobs FOR SELECT
+  TO service_role
+  USING (true);
+
+CREATE POLICY "Service role can update all jobs"
+  ON public.generation_jobs FOR UPDATE
+  TO service_role
+  USING (true);
+
+CREATE POLICY "Service role can insert jobs"
+  ON public.generation_jobs FOR INSERT
+  TO service_role
+  WITH CHECK (true);
+
+-- Also add service role policies for related tables workers need access to
+CREATE POLICY "Service role can view all websites"
+  ON public.websites FOR SELECT
+  TO service_role
+  USING (true);
+
+CREATE POLICY "Service role can update all websites"
+  ON public.websites FOR UPDATE
+  TO service_role
+  USING (true);
+
+CREATE POLICY "Service role can view all businesses"
+  ON public.businesses FOR SELECT
+  TO service_role
+  USING (true);
+
 -- Automation workflows
 CREATE POLICY "Users can view own workflows"
   ON public.automation_workflows FOR SELECT
