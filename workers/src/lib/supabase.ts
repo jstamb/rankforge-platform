@@ -16,9 +16,42 @@ export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
 });
 
 /**
+ * Reset stale processing jobs back to pending
+ * Jobs stuck in 'processing' for more than 5 minutes are considered stale
+ */
+export async function resetStaleJobs(): Promise<number> {
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+  const { data: staleJobs, error } = await supabase
+    .from('generation_jobs')
+    .update({
+      status: 'pending',
+      started_at: null,
+      current_step: 'Retrying...',
+    })
+    .eq('status', 'processing')
+    .lt('started_at', fiveMinutesAgo)
+    .select('id');
+
+  if (error) {
+    console.error('[Supabase] Error resetting stale jobs:', error.message);
+    return 0;
+  }
+
+  if (staleJobs && staleJobs.length > 0) {
+    console.log(`[Supabase] Reset ${staleJobs.length} stale job(s) to pending`);
+  }
+
+  return staleJobs?.length || 0;
+}
+
+/**
  * Fetch the next available job to process
  */
 export async function claimNextJob(jobTypes: string[]): Promise<GenerationJob | null> {
+  // First, check for and reset any stale processing jobs
+  await resetStaleJobs();
+
   // Get oldest pending job of specified types
   const { data: jobs, error } = await supabase
     .from('generation_jobs')
