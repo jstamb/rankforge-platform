@@ -3,6 +3,14 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Build arguments for Vite environment variables
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+
+# Set as environment variables for the build
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+
 # Copy package files
 COPY package*.json ./
 
@@ -12,7 +20,7 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build the app
+# Build the app (Vite will embed the env vars)
 RUN npm run build
 
 # Production stage - serve with nginx

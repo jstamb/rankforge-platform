@@ -10,6 +10,10 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
+      - '--build-arg'
+      - 'VITE_SUPABASE_URL=${_SUPABASE_URL}'
+      - '--build-arg'
+      - 'VITE_SUPABASE_ANON_KEY=${_SUPABASE_ANON_KEY}'
       - '-t'
       - 'gcr.io/$PROJECT_ID/rankforge-frontend:$COMMIT_SHA'
       - '-t'
@@ -116,3 +120,9 @@ options:
   logging: CLOUD_LOGGING_ONLY
 
 timeout: '1800s'
+
+# Substitution variables - pass these when running:
+# gcloud builds submit --substitutions=_SUPABASE_URL="https://xxx.supabase.co",_SUPABASE_ANON_KEY="eyJxxx"
+substitutions:
+  _SUPABASE_URL: ''
+  _SUPABASE_ANON_KEY: ''
