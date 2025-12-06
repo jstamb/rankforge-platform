@@ -16,6 +16,24 @@ export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   },
 });
 
+// Test database connection on startup
+(async () => {
+  console.log('[Supabase] Testing database connection...');
+  console.log('[Supabase] URL:', supabaseUrl);
+  console.log('[Supabase] Key starts with eyJ:', supabaseServiceKey?.startsWith('eyJ') ? 'YES (JWT)' : 'NO (wrong key!)');
+
+  // Test a simple query to check if connection works
+  const { count, error } = await supabase
+    .from('generation_jobs')
+    .select('*', { count: 'exact', head: true });
+
+  if (error) {
+    console.error('[Supabase] Connection test FAILED:', error.message);
+  } else {
+    console.log(`[Supabase] Connection test SUCCESS - found ${count} total jobs in database`);
+  }
+})();
+
 /**
  * Reset stale processing jobs back to pending
  * Jobs stuck in 'processing' for more than 5 minutes are considered stale
