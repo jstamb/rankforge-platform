@@ -6,25 +6,31 @@ steps:
   # FRONTEND BUILD & DEPLOY
   # ============================================
 
-  # Build frontend with secrets (using cloud-sdk which has both gcloud and docker)
+  # Step 1: Fetch secrets and write to workspace files
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
-        # Get secrets
-        SUPABASE_URL=$(gcloud secrets versions access latest --secret=SUPABASE_URL --project=$PROJECT_ID)
-        SUPABASE_ANON=$(gcloud secrets versions access latest --secret=SUPABASE_SECRET --project=$PROJECT_ID)
+        gcloud secrets versions access latest --secret=SUPABASE_URL --project=$PROJECT_ID > /workspace/SUPABASE_URL
+        gcloud secrets versions access latest --secret=SUPABASE_SECRET --project=$PROJECT_ID > /workspace/SUPABASE_ANON
+        echo "Secrets fetched:"
+        cat /workspace/SUPABASE_URL
+    id: 'fetch-secrets'
 
-        echo "Building frontend with Supabase URL: $${SUPABASE_URL}"
-
-        # Build image
+  # Step 2: Build frontend with secrets from files
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
         docker build \
-          --build-arg VITE_SUPABASE_URL="$${SUPABASE_URL}" \
-          --build-arg VITE_SUPABASE_ANON_KEY="$${SUPABASE_ANON}" \
+          --build-arg VITE_SUPABASE_URL="$(cat /workspace/SUPABASE_URL)" \
+          --build-arg VITE_SUPABASE_ANON_KEY="$(cat /workspace/SUPABASE_ANON)" \
           -t gcr.io/$PROJECT_ID/rankforge-frontend:latest \
           .
     id: 'build-frontend'
+    waitFor: ['fetch-secrets']
 
   # Push frontend image
   - name: 'gcr.io/cloud-builders/docker'
