@@ -104,6 +104,7 @@ steps:
       - '1'
       - '--max-instances'
       - '10'
+      - '--no-cpu-throttling'
       - '--set-env-vars'
       - 'NODE_ENV=production'
       - '--set-secrets'
