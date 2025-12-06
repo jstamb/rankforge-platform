@@ -1,7 +1,7 @@
 /**
  * Job Queue Service
  * Handles job creation, status updates, and Realtime subscriptions
- * Jobs are processed by N8N workers, not in the browser
+ * Jobs are processed by Cloud Run workers polling the queue
  */
 
 import { supabase } from '../lib/supabase';
@@ -128,27 +128,7 @@ export async function createGenerationJob(
     .update({ status: 'generating' })
     .eq('id', websiteId);
 
-  // Trigger N8N webhook to start processing
-  const n8nWebhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL;
-  if (n8nWebhookUrl) {
-    try {
-      await fetch(n8nWebhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          event: 'job_created',
-          jobId: job.id,
-          userId,
-          websiteId,
-          priority: job.priority,
-        }),
-      });
-    } catch (err) {
-      console.warn('Failed to notify N8N:', err);
-      // Job is still in queue, N8N will pick it up on next poll
-    }
-  }
-
+  // Job will be picked up by Cloud Run workers polling the queue
   return { jobId: job.id, queuePosition };
 }
 

@@ -4,9 +4,10 @@ import type { GenerationJob, JobStatus } from './types.js';
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY!;
 
-// Log configuration status at startup
-console.log('[Supabase] URL configured:', !!supabaseUrl);
-console.log('[Supabase] Service key configured:', !!supabaseServiceKey);
+// Log configuration status at startup (with key prefix for debugging)
+console.log('[Supabase] URL:', supabaseUrl);
+console.log('[Supabase] Service key prefix:', supabaseServiceKey?.substring(0, 20) + '...');
+console.log('[Supabase] Key type check:', supabaseServiceKey?.startsWith('eyJ') ? 'JWT format (correct)' : 'NOT JWT format (wrong key type!)');
 
 export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: {
@@ -53,9 +54,9 @@ export async function claimNextJob(jobTypes: string[]): Promise<GenerationJob | 
   await resetStaleJobs();
 
   // Get oldest pending job of specified types
-  const { data: jobs, error } = await supabase
+  const { data: jobs, error, count } = await supabase
     .from('generation_jobs')
-    .select('*')
+    .select('*', { count: 'exact' })
     .in('job_type', jobTypes)
     .eq('status', 'pending')
     .order('priority', { ascending: true })
@@ -63,9 +64,12 @@ export async function claimNextJob(jobTypes: string[]): Promise<GenerationJob | 
     .limit(1);
 
   if (error) {
-    console.error('[Supabase] Error fetching jobs:', error.message, error.code);
+    console.error('[Supabase] Error fetching jobs:', error.message, error.code, error.details, error.hint);
     return null;
   }
+
+  // Log query results for debugging
+  console.log(`[Supabase] Query result: ${jobs?.length || 0} jobs returned, total count: ${count}`);
 
   if (!jobs || jobs.length === 0) {
     return null;
