@@ -25,11 +25,14 @@ steps:
       - '-c'
       - |
         docker build \
-          --build-arg VITE_SUPABASE_URL=$(cat /workspace/supabase_url.txt) \
-          --build-arg VITE_SUPABASE_ANON_KEY=$(cat /workspace/supabase_anon.txt) \
-          -t gcr.io/$PROJECT_ID/rankforge-frontend:$COMMIT_SHA \
-          -t gcr.io/$PROJECT_ID/rankforge-frontend:latest \
+          --build-arg VITE_SUPABASE_URL=$$(cat /workspace/supabase_url.txt) \
+          --build-arg VITE_SUPABASE_ANON_KEY=$$(cat /workspace/supabase_anon.txt) \
+          -t gcr.io/${PROJECT_ID}/rankforge-frontend:${COMMIT_SHA} \
+          -t gcr.io/${PROJECT_ID}/rankforge-frontend:latest \
           .
+    env:
+      - 'PROJECT_ID=$PROJECT_ID'
+      - 'COMMIT_SHA=$COMMIT_SHA'
     id: 'build-frontend'
     waitFor: ['get-secrets']
 
