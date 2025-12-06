@@ -32,6 +32,10 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Copy built assets from builder
 COPY --from=builder /app/dist /usr/share/nginx/html
 
+# Ensure all files are readable by nginx
+RUN chmod -R 644 /usr/share/nginx/html/* 2>/dev/null || true && \
+    find /usr/share/nginx/html -type d -exec chmod 755 {} \;
+
 # Expose port (Cloud Run uses 8080)
 EXPOSE 8080
 
