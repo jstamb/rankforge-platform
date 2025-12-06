@@ -5,8 +5,8 @@ console.log('[Gemini] API key configured:', !!geminiApiKey);
 
 const genAI = new GoogleGenerativeAI(geminiApiKey!);
 
-// Use Gemini 1.5 Flash for fast, stable generation
-const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+// Use Gemini 2.0 Flash for fast, high-quality generation
+const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
 /**
  * Generate text content with Gemini
