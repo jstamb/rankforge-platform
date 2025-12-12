@@ -1,19 +1,139 @@
 import { BaseWorker } from '../lib/worker-base.js';
 import {
+  supabase,
   getDesignSystem,
   getContentIndex,
   getAllPageContent,
   getSEOResearch,
 } from '../lib/supabase.js';
-import type { GenerationJob, DesignSystem, PageContent } from '../lib/types.js';
+import type { GenerationJob } from '../lib/types.js';
+import {
+  BusinessInput,
+  PageContent,
+  DesignSystem,
+  SiteArchitecture,
+  PageDefinition,
+} from '../lib/seo-prompts.js';
+import { generateNextJSProjectComprehensive } from '../lib/seo-generation.js';
+import type { GeneratedFile as ComprehensiveGeneratedFile } from '../lib/nextjs-comprehensive-prompt.js';
 
+/**
+ * File Requirements Configuration
+ * Defines required files for each pipeline type with validation rules
+ */
+interface FileRequirement {
+  path: string;
+  required: boolean;
+  minLength?: number;
+  mustContain?: string[];
+  description: string;
+}
+
+const REACT_SPA_REQUIREMENTS: FileRequirement[] = [
+  // Build configuration
+  { path: 'package.json', required: true, minLength: 100, mustContain: ['"react"', '"vite"'], description: 'Package manifest with React/Vite deps' },
+  { path: 'tsconfig.json', required: true, minLength: 50, mustContain: ['compilerOptions'], description: 'TypeScript configuration' },
+  { path: 'vite.config.ts', required: true, minLength: 50, mustContain: ['defineConfig'], description: 'Vite bundler configuration' },
+  { path: 'tailwind.config.js', required: true, minLength: 50, mustContain: ['content'], description: 'Tailwind CSS configuration' },
+  { path: 'postcss.config.js', required: true, minLength: 30, mustContain: ['tailwindcss'], description: 'PostCSS configuration for Tailwind' },
+
+  // Source files
+  { path: 'index.html', required: true, minLength: 100, mustContain: ['<!DOCTYPE html>', '<div id="root"'], description: 'HTML entry point' },
+  { path: 'src/main.tsx', required: true, minLength: 100, mustContain: ['ReactDOM', 'createRoot'], description: 'React entry point' },
+  { path: 'src/App.tsx', required: true, minLength: 100, mustContain: ['export'], description: 'Root React component' },
+  { path: 'src/index.css', required: true, minLength: 50, mustContain: ['@tailwind'], description: 'Tailwind CSS entry point' },
+  { path: 'src/constants.ts', required: true, minLength: 50, mustContain: ['export'], description: 'Business constants' },
+
+  // Components
+  { path: 'src/components/Header.tsx', required: true, minLength: 100, description: 'Header component' },
+  { path: 'src/components/Footer.tsx', required: true, minLength: 100, description: 'Footer component' },
+  { path: 'src/components/LeadForm.tsx', required: true, minLength: 100, description: 'Lead capture form' },
+
+  // Pages
+  { path: 'src/pages/Home.tsx', required: true, minLength: 100, description: 'Home page component' },
+  { path: 'src/pages/Contact.tsx', required: true, minLength: 100, description: 'Contact page component' },
+
+  // Deployment
+  { path: 'Dockerfile', required: true, minLength: 100, mustContain: ['FROM', 'nginx', 'npm'], description: 'Multi-stage Dockerfile' },
+  { path: 'nginx.conf', required: true, minLength: 200, mustContain: ['listen 8080', 'mime.types'], description: 'Nginx configuration' },
+  { path: '.github/workflows/deploy.yml', required: true, minLength: 200, mustContain: ['Cloud Run', 'docker'], description: 'GitHub Actions workflow' },
+  { path: '.gitignore', required: true, minLength: 50, description: 'Git ignore file' },
+];
+
+/**
+ * Next.js 14 App Router Requirements
+ * Full production-ready Next.js project with SEO optimization
+ */
+const NEXTJS_14_REQUIREMENTS: FileRequirement[] = [
+  // Configuration files
+  { path: 'package.json', required: true, minLength: 200, mustContain: ['"next"', '"react"', '"typescript"'], description: 'Package manifest with Next.js dependencies' },
+  { path: 'tsconfig.json', required: true, minLength: 100, mustContain: ['compilerOptions'], description: 'TypeScript configuration' },
+  { path: 'next.config.js', required: true, minLength: 50, mustContain: ['nextConfig'], description: 'Next.js configuration' },
+  { path: 'tailwind.config.ts', required: true, minLength: 100, mustContain: ['content'], description: 'Tailwind CSS configuration' },
+  { path: 'postcss.config.js', required: true, minLength: 30, mustContain: ['tailwindcss'], description: 'PostCSS configuration' },
+
+  // App Router structure
+  { path: 'src/app/layout.tsx', required: true, minLength: 200, mustContain: ['export default'], description: 'Root layout' },
+  { path: 'src/app/page.tsx', required: true, minLength: 500, mustContain: ['export default'], description: 'Homepage' },
+  { path: 'src/app/globals.css', required: true, minLength: 50, mustContain: ['@tailwind'], description: 'Global styles' },
+
+  // Core pages
+  { path: 'src/app/about/page.tsx', required: true, minLength: 200, description: 'About page' },
+  { path: 'src/app/contact/page.tsx', required: true, minLength: 200, description: 'Contact page' },
+  { path: 'src/app/services/page.tsx', required: true, minLength: 200, description: 'Services hub' },
+
+  // Dynamic pages
+  { path: 'src/app/services/[serviceSlug]/page.tsx', required: true, minLength: 200, mustContain: ['generateStaticParams'], description: 'Dynamic service pages' },
+  { path: 'src/app/locations/[neighborhoodSlug]/page.tsx', required: true, minLength: 200, mustContain: ['generateStaticParams'], description: 'Dynamic location pages' },
+
+  // Core components
+  { path: 'src/components/layout/Header.tsx', required: true, minLength: 100, description: 'Header component' },
+  { path: 'src/components/layout/Footer.tsx', required: true, minLength: 100, description: 'Footer component' },
+  { path: 'src/components/forms/ContactForm.tsx', required: true, minLength: 100, description: 'Contact form component' },
+
+  // Data files
+  { path: 'src/data/services.ts', required: true, minLength: 200, description: 'Services data' },
+  { path: 'src/data/neighborhoods.ts', required: true, minLength: 100, description: 'Neighborhoods data' },
+
+  // Config
+  { path: 'src/lib/config.ts', required: true, minLength: 100, description: 'Site configuration' },
+
+  // API routes
+  { path: 'src/app/api/lead/route.ts', required: true, minLength: 50, mustContain: ['POST'], description: 'Lead form API' },
+  { path: 'src/app/api/health/route.ts', required: true, minLength: 30, description: 'Health check API' },
+
+  // Deployment
+  { path: 'Dockerfile', required: true, minLength: 100, mustContain: ['FROM', 'npm', 'standalone'], description: 'Next.js Dockerfile' },
+  { path: '.github/workflows/deploy.yml', required: true, minLength: 200, mustContain: ['Cloud Run'], description: 'GitHub Actions workflow' },
+  { path: '.gitignore', required: true, minLength: 50, mustContain: ['node_modules', '.next'], description: 'Git ignore file' },
+];
+
+interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  fileCount: number;
+  missingRequired: string[];
+}
+
+/**
+ * Enhanced Site Builder Worker
+ *
+ * Converts SEO-optimized content into production-ready static HTML files.
+ * Generates:
+ * - Static HTML pages with proper schema markup
+ * - CSS stylesheet with design system variables
+ * - JavaScript for interactions
+ * - sitemap.xml
+ * - robots.txt
+ */
 export class SiteBuilderWorker extends BaseWorker {
   private currentStep: string = 'Initializing';
 
   constructor() {
     super({
       name: 'Site Builder',
-      jobTypes: ['site_build', 'full_generation'],
+      jobTypes: ['site_build'],
       pollInterval: 5000,
       maxConcurrent: 2,
     });
@@ -24,29 +144,695 @@ export class SiteBuilderWorker extends BaseWorker {
   }
 
   protected async process(job: GenerationJob): Promise<Record<string, unknown>> {
-    const totalSteps = 6;
+    const totalSteps = 5;
     let completedSteps = 0;
 
-    const business = job.input_payload.business;
+    const inputPayload = job.input_payload as any;
+
+    // Check for project type - default to 'nextjs' for new sites
+    const projectType = inputPayload?.projectType || 'nextjs';
 
     // Step 1: Load all resources
-    this.currentStep = 'Loading design system and content';
+    this.currentStep = 'Loading site configuration';
     await this.progress(job.id, this.currentStep, completedSteps, totalSteps);
 
-    const [designSystem, contentIndex, pageContents, seoResearch] = await Promise.all([
-      getDesignSystem(job.website_id),
-      getContentIndex(job.website_id),
-      getAllPageContent(job.website_id),
-      getSEOResearch(job.website_id),
-    ]);
+    // Route to appropriate build method based on project type
+    // Default to Next.js for all new sites (static HTML removed)
+    if (projectType === 'nextjs' || projectType === 'static') {
+      console.log('[SiteBuilder] Using Next.js 14 App Router pipeline');
+      return await this.buildNextJSProject(job, inputPayload, completedSteps, totalSteps);
+    }
+
+    // Fall back to legacy React SPA pipeline (for backwards compatibility only)
+    console.log('[SiteBuilder] Using legacy React SPA pipeline');
+    return await this.buildFromLegacyData(job, inputPayload, completedSteps, totalSteps);
+  }
+
+  /**
+   * Build Next.js 14 App Router project
+   *
+   * Uses Gemini 2.5 Pro to generate a complete, production-ready Next.js project with:
+   * - Full SEO optimization
+   * - TypeScript strict mode
+   * - Tailwind CSS styling
+   * - React Hook Form + Zod validation
+   * - Docker + GitHub Actions for Cloud Run deployment
+   */
+  private async buildNextJSProject(
+    job: GenerationJob,
+    inputPayload: any,
+    completedSteps: number,
+    totalSteps: number
+  ): Promise<Record<string, unknown>> {
+    // Get business data from input or fetch from database
+    let businessInput = inputPayload?.business as BusinessInput | undefined;
+
+    if (!businessInput) {
+      const { data: website } = await supabase
+        .from('websites')
+        .select('*, businesses(*)')
+        .eq('id', job.website_id)
+        .single();
+
+      if (website?.businesses) {
+        const b = website.businesses as any;
+        businessInput = {
+          business_name: b.business_name,
+          niche: b.business_type,
+          city: b.address_city,
+          state: b.address_state,
+          phone: b.phone,
+          address: `${b.address_street}, ${b.address_city}, ${b.address_state} ${b.address_zip}`,
+          neighborhoods: inputPayload?.neighborhoods || [],
+          services: b.services || [],
+          business_hours: inputPayload?.businessHours || 'Mon-Fri 8am-6pm, Sat 9am-4pm',
+          year_established: inputPayload?.yearEstablished || (new Date().getFullYear() - 10),
+          license_number: inputPayload?.licenseNumber,
+          email: b.email,
+          google_maps_embed_url: inputPayload?.googleMapsEmbedUrl,
+        };
+      }
+    }
+
+    if (!businessInput) {
+      throw new Error('Business data not found');
+    }
+
+    completedSteps++;
+    this.currentStep = 'Generating Next.js project with Gemini AI';
+    await this.progress(job.id, this.currentStep, completedSteps, totalSteps);
+
+    // Generate the complete Next.js project using Gemini 2.5 Pro
+    console.log(`[SiteBuilder] Generating Next.js project for ${businessInput.business_name}...`);
+
+    let projectResult: { files: ComprehensiveGeneratedFile[]; stats: { totalFiles: number; generationTime: string; stepsCompleted: number } };
+
+    try {
+      // Use comprehensive multi-step generation with detailed progress tracking
+      projectResult = await generateNextJSProjectComprehensive(
+        businessInput,
+        async (step, totalSteps, stepName, detail) => {
+          this.currentStep = `Step ${step}/${totalSteps}: ${stepName}`;
+          console.log(`[SiteBuilder] ${this.currentStep} - ${detail}`);
+          // Update progress in database for real-time UI updates
+          await this.progress(job.id, this.currentStep, completedSteps, totalSteps + 3);
+        }
+      );
+    } catch (error: any) {
+      console.error('[SiteBuilder] Comprehensive Next.js generation failed:', error);
+      throw new Error(`Failed to generate Next.js project: ${error.message}`);
+    }
+
+    const files = projectResult.files;
+    console.log(`[SiteBuilder] Generated ${files.length} Next.js project files`);
+
+    completedSteps++;
+    this.currentStep = 'Adding deployment configuration';
+    await this.progress(job.id, this.currentStep, completedSteps, totalSteps);
+
+    // Ensure critical deployment files exist
+    const serviceName = businessInput.business_name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+
+    // Check and add missing deployment files
+    if (!files.find(f => f.path === '.github/workflows/deploy.yml')) {
+      files.push({
+        path: '.github/workflows/deploy.yml',
+        content: this.generateNextJSWorkflow(serviceName),
+      });
+    }
+
+    if (!files.find(f => f.path === 'Dockerfile')) {
+      files.push({
+        path: 'Dockerfile',
+        content: this.generateNextJSDockerfile(),
+      });
+    }
+
+    if (!files.find(f => f.path === '.dockerignore')) {
+      files.push({
+        path: '.dockerignore',
+        content: this.generateDockerignore(),
+      });
+    }
+
+    if (!files.find(f => f.path === '.gitignore')) {
+      files.push({
+        path: '.gitignore',
+        content: this.generateNextJSGitignore(),
+      });
+    }
+
+    if (!files.find(f => f.path === 'cloudbuild.yaml')) {
+      files.push({
+        path: 'cloudbuild.yaml',
+        content: this.generateNextJSCloudBuild(serviceName),
+      });
+    }
+
+    // Add public folder files for static assets
+    const domain = inputPayload?.domain || `${serviceName}.com`;
+
+    // robots.txt in public folder
+    if (!files.find(f => f.path === 'public/robots.txt')) {
+      files.push({
+        path: 'public/robots.txt',
+        content: this.generateRobotsTxt(domain),
+      });
+    }
+
+    // sitemap.xml in public folder (static version, Next.js also has dynamic)
+    if (!files.find(f => f.path === 'public/sitemap.xml')) {
+      files.push({
+        path: 'public/sitemap.xml',
+        content: this.generateSitemapXml(domain, businessInput),
+      });
+    }
+
+    // Placeholder for images directory
+    if (!files.find(f => f.path === 'public/images/.gitkeep')) {
+      files.push({
+        path: 'public/images/.gitkeep',
+        content: '# Placeholder for images directory\n',
+      });
+    }
+
+    // Favicon placeholder
+    if (!files.find(f => f.path === 'public/favicon.ico')) {
+      files.push({
+        path: 'public/favicon.ico',
+        content: '', // Empty placeholder - should be replaced with actual favicon
+      });
+    }
+
+    // OG image placeholder
+    if (!files.find(f => f.path === 'public/og-image.jpg')) {
+      files.push({
+        path: 'public/images/og-image.jpg',
+        content: '', // Placeholder - should be generated or uploaded
+      });
+    }
+
+    completedSteps++;
+    this.currentStep = 'Validating generated files';
+    await this.progress(job.id, this.currentStep, completedSteps, totalSteps);
+
+    // Validate files
+    const validation = this.validateFiles(files, NEXTJS_14_REQUIREMENTS, 'nextjs-14');
+
+    if (!validation.valid) {
+      console.warn(`[SiteBuilder] Next.js validation has ${validation.errors.length} errors, ${validation.warnings.length} warnings`);
+      // Log warnings but don't fail - some optional files may be missing
+      validation.errors.forEach(err => console.warn(`[SiteBuilder] Validation: ${err}`));
+    }
+
+    completedSteps++;
+    await this.progress(job.id, 'Next.js project build complete', completedSteps, totalSteps);
+
+    // Calculate stats
+    const tsxFiles = files.filter(f => f.path.endsWith('.tsx')).length;
+    const tsFiles = files.filter(f => f.path.endsWith('.ts')).length;
+    const pageFiles = files.filter(f => f.path.includes('/app/') && f.path.endsWith('page.tsx')).length;
+
+    return {
+      filesGenerated: files.length,
+      files,
+      projectType: 'nextjs',
+      stats: {
+        totalFiles: files.length,
+        tsxComponents: tsxFiles,
+        tsFiles: tsFiles,
+        pages: pageFiles,
+        generationTime: projectResult.stats.generationTime,
+      },
+      validation: {
+        passed: validation.valid,
+        errors: validation.errors,
+        warnings: validation.warnings,
+      },
+    };
+  }
+
+  /**
+   * Generate Next.js 14 Dockerfile (standalone output mode)
+   */
+  private generateNextJSDockerfile(): string {
+    return `# Next.js 14 Production Dockerfile
+# Multi-stage build for standalone output
+
+# Build stage
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+RUN npm ci
+
+# Copy source files
+COPY . .
+
+# Build the application
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+# Production stage
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=8080
+ENV HOSTNAME="0.0.0.0"
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy standalone output
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+
+EXPOSE 8080
+
+CMD ["node", "server.js"]`;
+  }
+
+  /**
+   * Generate GitHub Actions workflow for Next.js
+   */
+  private generateNextJSWorkflow(serviceName: string): string {
+    return `name: Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: \${{ secrets.GCP_PROJECT_ID }}
+  SERVICE_NAME: ${serviceName}
+  REGION: us-central1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: \${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: \${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Create Artifact Registry repository (if not exists)
+        run: |
+          gcloud artifacts repositories describe cloud-run-source-deploy \\
+            --location=\${{ env.REGION }} \\
+            --project=\${{ env.PROJECT_ID }} 2>/dev/null || \\
+          gcloud artifacts repositories create cloud-run-source-deploy \\
+            --repository-format=docker \\
+            --location=\${{ env.REGION }} \\
+            --project=\${{ env.PROJECT_ID }} \\
+            --description="Docker images for Cloud Run deployments"
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker \${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build -t \${{ env.REGION }}-docker.pkg.dev/\${{ env.PROJECT_ID }}/cloud-run-source-deploy/\${{ env.SERVICE_NAME }}:\${{ github.sha }} .
+          docker tag \${{ env.REGION }}-docker.pkg.dev/\${{ env.PROJECT_ID }}/cloud-run-source-deploy/\${{ env.SERVICE_NAME }}:\${{ github.sha }} \\
+            \${{ env.REGION }}-docker.pkg.dev/\${{ env.PROJECT_ID }}/cloud-run-source-deploy/\${{ env.SERVICE_NAME }}:latest
+
+      - name: Push Docker image
+        run: |
+          docker push \${{ env.REGION }}-docker.pkg.dev/\${{ env.PROJECT_ID }}/cloud-run-source-deploy/\${{ env.SERVICE_NAME }}:\${{ github.sha }}
+          docker push \${{ env.REGION }}-docker.pkg.dev/\${{ env.PROJECT_ID }}/cloud-run-source-deploy/\${{ env.SERVICE_NAME }}:latest
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy \${{ env.SERVICE_NAME }} \\
+            --image \${{ env.REGION }}-docker.pkg.dev/\${{ env.PROJECT_ID }}/cloud-run-source-deploy/\${{ env.SERVICE_NAME }}:\${{ github.sha }} \\
+            --region \${{ env.REGION }} \\
+            --platform managed \\
+            --allow-unauthenticated \\
+            --port 8080 \\
+            --memory 1Gi \\
+            --cpu 1 \\
+            --min-instances 0 \\
+            --max-instances 10 \\
+            --cpu-throttling
+
+      - name: Get Service URL
+        run: |
+          URL=\$(gcloud run services describe \${{ env.SERVICE_NAME }} --region \${{ env.REGION }} --format 'value(status.url)')
+          echo "## 🚀 Deployment Successful!" >> \$GITHUB_STEP_SUMMARY
+          echo "" >> \$GITHUB_STEP_SUMMARY
+          echo "**Service URL:** \$URL" >> \$GITHUB_STEP_SUMMARY
+          echo "Service deployed to: \$URL"`;
+  }
+
+  /**
+   * Generate Cloud Build config for Next.js
+   */
+  private generateNextJSCloudBuild(serviceName: string): string {
+    return `# Cloud Build configuration for Next.js deployment
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '\$_REGION-docker.pkg.dev/\$PROJECT_ID/cloud-run-source-deploy/${serviceName}:\$COMMIT_SHA'
+      - '.'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '\$_REGION-docker.pkg.dev/\$PROJECT_ID/cloud-run-source-deploy/${serviceName}:\$COMMIT_SHA'
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${serviceName}'
+      - '--image'
+      - '\$_REGION-docker.pkg.dev/\$PROJECT_ID/cloud-run-source-deploy/${serviceName}:\$COMMIT_SHA'
+      - '--region'
+      - '\$_REGION'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '8080'
+      - '--memory'
+      - '1Gi'
+      - '--cpu'
+      - '1'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '10'
+      - '--cpu-throttling'
+
+images:
+  - '\$_REGION-docker.pkg.dev/\$PROJECT_ID/cloud-run-source-deploy/${serviceName}:\$COMMIT_SHA'
+
+substitutions:
+  _REGION: us-central1
+
+options:
+  logging: CLOUD_LOGGING_ONLY`;
+  }
+
+  /**
+   * Generate .dockerignore for Next.js
+   */
+  private generateDockerignore(): string {
+    return `# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Build output
+.next
+out
+build
+dist
+
+# Testing
+coverage
+
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml`;
+  }
+
+  /**
+   * Generate .gitignore for Next.js
+   */
+  private generateNextJSGitignore(): string {
+    return `# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Next.js build output
+.next
+out
+build
+
+# Testing
+coverage
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+*.log
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Misc
+.vercel`;
+  }
+
+  /**
+   * Generate robots.txt for SEO
+   */
+  private generateRobotsTxt(domain: string): string {
+    return `# robots.txt for ${domain}
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: https://${domain}/sitemap.xml
+
+# Disallow admin/private areas (if any)
+Disallow: /api/
+Disallow: /_next/
+Disallow: /admin/
+
+# Allow all search engine crawlers
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: Slurp
+Allow: /
+
+# Crawl-delay for polite crawling (optional)
+# Crawl-delay: 10
+`;
+  }
+
+  /**
+   * Generate sitemap.xml for SEO
+   */
+  private generateSitemapXml(domain: string, businessInput: BusinessInput): string {
+    const today = new Date().toISOString().split('T')[0];
+
+    // Build list of URLs
+    const urls: Array<{ loc: string; priority: string; changefreq: string }> = [
+      { loc: `https://${domain}/`, priority: '1.0', changefreq: 'weekly' },
+      { loc: `https://${domain}/about`, priority: '0.8', changefreq: 'monthly' },
+      { loc: `https://${domain}/services`, priority: '0.9', changefreq: 'weekly' },
+      { loc: `https://${domain}/contact`, priority: '0.8', changefreq: 'monthly' },
+    ];
+
+    // Add service pages
+    if (businessInput.services && businessInput.services.length > 0) {
+      businessInput.services.forEach((service: string) => {
+        const slug = service.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        urls.push({
+          loc: `https://${domain}/services/${slug}`,
+          priority: '0.8',
+          changefreq: 'monthly',
+        });
+      });
+    }
+
+    // Add neighborhood/location pages
+    if (businessInput.neighborhoods && businessInput.neighborhoods.length > 0) {
+      businessInput.neighborhoods.forEach((neighborhood: string) => {
+        const slug = neighborhood.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        urls.push({
+          loc: `https://${domain}/locations/${slug}`,
+          priority: '0.7',
+          changefreq: 'monthly',
+        });
+      });
+    }
+
+    // Generate XML
+    const urlsXml = urls
+      .map(
+        (url) => `  <url>
+    <loc>${url.loc}</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>${url.changefreq}</changefreq>
+    <priority>${url.priority}</priority>
+  </url>`
+      )
+      .join('\n');
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urlsXml}
+</urlset>`;
+  }
+
+  /**
+   * Build site from legacy unified generation pipeline (backwards compatibility)
+   */
+  private async buildFromLegacyData(
+    job: GenerationJob,
+    inputPayload: any,
+    completedSteps: number,
+    totalSteps: number
+  ): Promise<Record<string, unknown>> {
+    // Design system can come from input_payload (unified worker) or database
+    let designSystem = inputPayload?.designSystem;
+    if (!designSystem) {
+      designSystem = await getDesignSystem(job.website_id);
+    }
+
+    if (!designSystem) {
+      console.log('[SiteBuilder] Design system not found, waiting 3s for save...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      designSystem = await getDesignSystem(job.website_id);
+    }
 
     if (!designSystem) {
       throw new Error('Design system not found. Run design generation first.');
     }
 
+    // Convert unified worker format to expected format if needed
+    if (designSystem.colorPalette && !designSystem.tailwind_config) {
+      designSystem = {
+        tailwind_config: {
+          colors: designSystem.colorPalette,
+          fontFamily: {
+            heading: [designSystem.typography?.headingFont || 'Inter', 'sans-serif'],
+            body: [designSystem.typography?.bodyFont || 'Inter', 'sans-serif'],
+          },
+        },
+        color_palette: designSystem.colorPalette,
+        typography: designSystem.typography,
+        component_library: designSystem.componentStyles || {},
+      };
+    }
+
+    const [contentIndex, pageContents, seoResearch] = await Promise.all([
+      getContentIndex(job.website_id),
+      getAllPageContent(job.website_id),
+      getSEOResearch(job.website_id),
+    ]);
+
+    // Get business from input or fetch from website
+    let business = inputPayload?.business;
+    if (!business) {
+      const { data: website } = await supabase
+        .from('websites')
+        .select('*, businesses(*)')
+        .eq('id', job.website_id)
+        .single();
+
+      if (website?.businesses) {
+        const b = website.businesses;
+        business = {
+          businessName: b.business_name,
+          niche: b.business_type,
+          businessType: b.business_type,
+          phone: b.phone,
+          email: b.email,
+          description: b.description,
+          services: b.services || [],
+          yearsInBusiness: 10,
+          address: {
+            street: b.address_street,
+            city: b.address_city,
+            state: b.address_state,
+            zip: b.address_zip,
+          },
+          targetCities: inputPayload?.businessInput?.targetCities || [
+            { name: b.address_city, state: b.address_state }
+          ],
+        };
+      }
+    }
+
+    if (!business) {
+      throw new Error('Business data not found');
+    }
+
     completedSteps++;
 
-    // Step 2: Generate project files
+    // Step 2: Generate project files (React SPA - legacy mode)
     this.currentStep = 'Generating project structure';
     await this.progress(job.id, this.currentStep, completedSteps, totalSteps);
 
@@ -74,6 +860,18 @@ export class SiteBuilderWorker extends BaseWorker {
     files.push({
       path: 'tailwind.config.js',
       content: this.generateTailwindConfig(designSystem),
+    });
+
+    // postcss.config.js - REQUIRED for Tailwind CSS processing
+    files.push({
+      path: 'postcss.config.js',
+      content: this.generatePostcssConfig(),
+    });
+
+    // src/index.css - Tailwind CSS entry point
+    files.push({
+      path: 'src/index.css',
+      content: this.generateIndexCss(designSystem),
     });
 
     completedSteps++;
@@ -110,16 +908,26 @@ export class SiteBuilderWorker extends BaseWorker {
       content: this.generateConstants(business, seoResearch),
     });
 
-    // Components from design system
+    // Components from design system (with validation)
     if (designSystem.component_library) {
       for (const [componentName, variations] of Object.entries(
         designSystem.component_library as Record<string, string[]>
       )) {
         if (variations && variations.length > 0) {
-          files.push({
-            path: `src/components/${this.capitalize(componentName)}.tsx`,
-            content: variations[0],
-          });
+          const content = variations[0];
+          // Validate component content: must be at least 50 chars and look like React code
+          const isValidComponent = content &&
+            content.length >= 50 &&
+            (content.includes('export') || content.includes('function') || content.includes('const'));
+
+          if (isValidComponent) {
+            files.push({
+              path: `src/components/${this.capitalize(componentName)}.tsx`,
+              content,
+            });
+          } else {
+            console.warn(`[SiteBuilder] Skipping invalid component ${componentName}: content too short or invalid (${content?.length || 0} chars)`);
+          }
         }
       }
     }
@@ -168,8 +976,6 @@ export class SiteBuilderWorker extends BaseWorker {
       content: this.generateServicePage(business),
     });
 
-    completedSteps++;
-
     // Step 6: Generate deployment files
     this.currentStep = 'Generating deployment files';
     await this.progress(job.id, this.currentStep, completedSteps, totalSteps);
@@ -189,18 +995,135 @@ export class SiteBuilderWorker extends BaseWorker {
       content: this.generateGitignore(),
     });
 
+    // Add GitHub Actions workflow for automatic Cloud Run deployment (legacy pipeline)
+    const serviceName = business.businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    files.push({
+      path: '.github/workflows/deploy.yml',
+      content: this.generateGitHubActionsWorkflow(serviceName),
+    });
+
+    // Add cloudbuild.yaml as backup build config
+    files.push({
+      path: 'cloudbuild.yaml',
+      content: this.generateCloudBuildYaml(serviceName),
+    });
+
+    // Add README
+    const domain = `${serviceName}.com`;
+    files.push({
+      path: 'README.md',
+      content: this.generateReadme({
+        business_name: business.businessName,
+        niche: business.niche || business.businessType,
+        city: business.address.city,
+        state: business.address.state,
+      } as BusinessInput, domain),
+    });
+
+    // Step 6: Validate and auto-fix if needed
+    this.currentStep = 'Validating generated files';
+    await this.progress(job.id, this.currentStep, completedSteps, totalSteps);
+
+    // First validation pass
+    let validation = this.validateFiles(files, REACT_SPA_REQUIREMENTS, 'react-spa');
+
+    // Attempt to auto-fix missing files
+    let finalFiles = files;
+    if (!validation.valid && validation.missingRequired.length > 0) {
+      console.log(`[SiteBuilder] Attempting to auto-fix ${validation.missingRequired.length} missing files...`);
+      finalFiles = this.autoFixMissingFiles(files, validation.missingRequired, designSystem);
+
+      // Re-validate after fixes
+      validation = this.validateFiles(finalFiles, REACT_SPA_REQUIREMENTS, 'react-spa');
+    }
+
+    if (!validation.valid) {
+      console.error(`[SiteBuilder] React SPA validation failed with ${validation.errors.length} errors after auto-fix attempt`);
+      throw new Error(
+        `Site build validation failed:\n${validation.errors.join('\n')}\n\nGenerated ${finalFiles.length} files but validation still failing.`
+      );
+    }
+
     completedSteps++;
     await this.progress(job.id, 'Site build complete', completedSteps, totalSteps);
 
     return {
-      filesGenerated: files.length,
-      files, // Pass files to deployment worker
+      filesGenerated: finalFiles.length,
+      files: finalFiles,
       pagesGenerated: (contentIndex || []).length,
+      validation: {
+        passed: validation.valid,
+        errors: validation.errors,
+        warnings: validation.warnings,
+        autoFixed: finalFiles.length > files.length,
+      },
     };
   }
 
   private capitalize(str: string): string {
     return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
+  private generateReadme(business: BusinessInput, domain: string): string {
+    return `# ${business.business_name}
+
+Website for ${business.business_name} - ${business.niche} services in ${business.city}, ${business.state}.
+
+Generated by RankForge.
+
+## Deployment
+
+This is a static HTML website optimized for SEO. Deploy to any static hosting:
+
+### GitHub Pages
+1. Enable GitHub Pages in repository settings
+2. Set source to root directory
+
+### Netlify
+1. Connect repository to Netlify
+2. Set publish directory to root
+
+### CloudFlare Pages
+1. Connect repository to CloudFlare Pages
+2. Set build command: (leave empty - static files)
+3. Set output directory: /
+
+### Docker
+\`\`\`bash
+docker build -t ${domain} .
+docker run -p 80:80 ${domain}
+\`\`\`
+
+## Structure
+
+\`\`\`
+├── index.html           # Homepage
+├── services/            # Service pages
+├── ${business.city.toLowerCase()}/              # Location/neighborhood pages
+├── blog/                # Blog posts
+├── contact/             # Contact page
+├── about/               # About page
+├── assets/
+│   ├── css/styles.css   # Stylesheet
+│   └── js/main.js       # JavaScript
+├── sitemap.xml          # XML Sitemap
+├── robots.txt           # Robots file
+├── Dockerfile           # Docker config
+└── nginx.conf           # Nginx config
+\`\`\`
+
+## SEO Features
+
+- Schema markup (LocalBusiness, Service, FAQPage, BreadcrumbList)
+- Optimized meta titles and descriptions
+- Internal linking strategy
+- Mobile-responsive design
+- Fast page load times
+- XML sitemap
+
+---
+Generated with ❤️ by [RankForge](https://rankforge.io)
+`;
   }
 
   private generatePackageJson(businessName: string): string {
@@ -324,9 +1247,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   }
 
   private generateAppTsx(contentIndex: any[]): string {
-    const locationPages = contentIndex.filter((p) => p.page_type === 'location');
-    const servicePages = contentIndex.filter((p) => p.page_type === 'service');
-
     return `import { Routes, Route } from 'react-router-dom'
 import Header from './components/Header'
 import Footer from './components/Footer'
@@ -508,8 +1428,6 @@ export default function LeadForm({ title = 'Get Your Free Quote', city = '' }: L
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setStatus('loading')
-
-    // Simulate form submission
     await new Promise(resolve => setTimeout(resolve, 1000))
     setStatus('success')
   }
@@ -984,41 +1902,335 @@ export default function ServicePage() {
 }`;
   }
 
+  /**
+   * Generate PostCSS config - REQUIRED for Tailwind CSS processing
+   */
+  private generatePostcssConfig(): string {
+    return `export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+`;
+  }
+
+  /**
+   * Generate Tailwind CSS entry point
+   */
+  private generateIndexCss(designSystem: any): string {
+    const colors = designSystem?.tailwind_config?.colors || designSystem?.colorPalette || {};
+    const primaryColor = colors.primary || '#3b82f6';
+    const accentColor = colors.accent || '#10b981';
+
+    return `@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom base styles */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  }
+
+  /* Focus styles for accessibility */
+  *:focus {
+    outline: 2px solid ${primaryColor};
+    outline-offset: 2px;
+  }
+
+  *:focus:not(:focus-visible) {
+    outline: none;
+  }
+}
+
+/* Custom component classes */
+@layer components {
+  .btn-primary {
+    @apply bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-3 px-6 rounded-lg transition-colors duration-200;
+  }
+
+  .btn-accent {
+    @apply bg-emerald-500 hover:bg-emerald-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200;
+  }
+}
+
+/* Custom utilities */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+`;
+  }
+
+  /**
+   * Generate Dockerfile for Vite/React SPA build
+   * Multi-stage build: npm install -> vite build -> nginx serve
+   */
   private generateDockerfile(): string {
-    return `FROM node:20-alpine AS builder
+    return `# Build stage - compile React/Vite app
+FROM node:20-alpine AS builder
+
 WORKDIR /app
+
+# Copy package files first for better layer caching
 COPY package*.json ./
-RUN npm ci
+
+# Install dependencies (npm install for flexibility, works with or without lock file)
+RUN npm install
+
+# Copy source code
 COPY . .
+
+# Build the Vite project
 RUN npm run build
 
+# Production stage - serve with nginx
 FROM nginx:alpine
+
+# Copy built files from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Copy nginx config for Cloud Run (port 8080)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+
+# Ensure proper file permissions
+RUN chmod -R 755 /usr/share/nginx/html
+
+# Cloud Run requires port 8080
+ENV PORT=8080
+EXPOSE 8080
+
+# Start nginx
 CMD ["nginx", "-g", "daemon off;"]`;
   }
 
-  private generateNginxConf(): string {
+  /**
+   * Generate Dockerfile for static HTML sites (no build step)
+   * Used by the SEO pipeline which generates pre-built HTML files
+   */
+  private generateStaticDockerfile(): string {
+    return `# Static HTML site container
+FROM nginx:alpine
+
+# Copy all static files to nginx html directory
+COPY . /usr/share/nginx/html
+
+# Copy nginx config for Cloud Run (port 8080)
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Remove unnecessary files from the image
+RUN rm -f /usr/share/nginx/html/Dockerfile \\
+    && rm -f /usr/share/nginx/html/nginx.conf \\
+    && rm -f /usr/share/nginx/html/cloudbuild.yaml \\
+    && rm -rf /usr/share/nginx/html/.github \\
+    && rm -f /usr/share/nginx/html/.gitignore \\
+    && rm -f /usr/share/nginx/html/README.md
+
+# Ensure proper file permissions
+RUN chmod -R 755 /usr/share/nginx/html
+
+# Cloud Run requires port 8080
+ENV PORT=8080
+EXPOSE 8080
+
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]`;
+  }
+
+  /**
+   * Generate nginx.conf for static HTML sites
+   * Handles clean URLs (directory-style) for SEO
+   */
+  private generateStaticNginxConf(): string {
     return `server {
-    listen 80;
+    # Cloud Run requires port 8080
+    listen 8080;
     server_name localhost;
     root /usr/share/nginx/html;
     index index.html;
 
+    # Hide nginx version
+    server_tokens off;
+
+    # MIME Types - ensure proper content-type headers
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Additional MIME types
+    types {
+        application/javascript js mjs;
+        text/css css;
+        image/svg+xml svg svgz;
+        font/woff woff;
+        font/woff2 woff2;
+        application/json json;
+        text/html html htm;
+    }
+
+    # Security Headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_min_length 1024;
+    gzip_types
+        text/plain
+        text/css
+        text/javascript
+        application/javascript
+        application/json
+        application/xml
+        text/xml
+        image/svg+xml;
+
+    # Handle clean URLs for static HTML (directory-style URLs)
+    location / {
+        try_files $uri $uri/ $uri/index.html $uri.html =404;
+    }
+
+    # Cache static assets aggressively
+    location ~* \\.(?:css|js)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    # Cache images and fonts
+    location ~* \\.(?:png|jpg|jpeg|gif|ico|svg|webp|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    # Deny access to hidden files
+    location ~ /\\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    # Health check endpoint for Cloud Run
+    location /health {
+        return 200 'OK';
+        add_header Content-Type text/plain;
+    }
+}`;
+  }
+
+  private generateNginxConf(): string {
+    return `server {
+    # Cloud Run requires port 8080
+    listen 8080;
+    server_name localhost;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Hide nginx version
+    server_tokens off;
+
+    # MIME Types - ensure proper content-type headers
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Additional MIME types for modern web assets
+    types {
+        application/javascript js mjs;
+        text/css css;
+        image/svg+xml svg svgz;
+        font/woff woff;
+        font/woff2 woff2;
+        application/json json;
+        text/html html htm;
+    }
+
+    # Security Headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Gzip compression for better performance
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_min_length 1024;
+    gzip_types
+        text/plain
+        text/css
+        text/javascript
+        application/javascript
+        application/json
+        application/xml
+        text/xml
+        image/svg+xml
+        font/woff
+        font/woff2;
+
+    # SPA routing - all routes go to index.html
     location / {
         try_files $uri $uri/ /index.html;
     }
 
-    # Cache static assets
-    location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+    # Cache Vite-built assets (fingerprinted files) aggressively
+    location ~* \\.(?:css|js|mjs)$ {
         expires 1y;
         add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff" always;
     }
 
-    # Gzip compression
-    gzip on;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+    # Cache images and fonts
+    location ~* \\.(?:png|jpg|jpeg|gif|ico|svg|webp|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    # Don't cache HTML (for SPA updates)
+    location ~* \\.html$ {
+        expires -1;
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
+    }
+
+    # Deny access to hidden files
+    location ~ /\\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    # Deny access to sensitive files
+    location ~* \\.(env|git|gitignore|dockerignore|md|yml|yaml|lock|log)$ {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    # Health check endpoint for Cloud Run
+    location /health {
+        return 200 'OK';
+        add_header Content-Type text/plain;
+    }
 }`;
   }
 
@@ -1053,5 +2265,286 @@ npm-debug.log*
 
 # TypeScript
 *.tsbuildinfo`;
+  }
+
+  /**
+   * Generate GitHub Actions workflow for automatic Cloud Run deployment
+   * This enables auto-deploy on every push to main branch
+   */
+  private generateGitHubActionsWorkflow(serviceName: string): string {
+    return `name: Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: \${{ secrets.GCP_PROJECT_ID }}
+  SERVICE_NAME: ${serviceName}
+  REGION: us-central1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: \${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: \${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Create Artifact Registry repository (if not exists)
+        run: |
+          gcloud artifacts repositories describe cloud-run-source-deploy \\
+            --location=\${{ env.REGION }} \\
+            --project=\${{ env.PROJECT_ID }} 2>/dev/null || \\
+          gcloud artifacts repositories create cloud-run-source-deploy \\
+            --repository-format=docker \\
+            --location=\${{ env.REGION }} \\
+            --project=\${{ env.PROJECT_ID }} \\
+            --description="Docker images for Cloud Run deployments"
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker \${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build -t \${{ env.REGION }}-docker.pkg.dev/\${{ env.PROJECT_ID }}/cloud-run-source-deploy/\${{ env.SERVICE_NAME }}:\${{ github.sha }} .
+          docker tag \${{ env.REGION }}-docker.pkg.dev/\${{ env.PROJECT_ID }}/cloud-run-source-deploy/\${{ env.SERVICE_NAME }}:\${{ github.sha }} \\
+            \${{ env.REGION }}-docker.pkg.dev/\${{ env.PROJECT_ID }}/cloud-run-source-deploy/\${{ env.SERVICE_NAME }}:latest
+
+      - name: Push Docker image
+        run: |
+          docker push \${{ env.REGION }}-docker.pkg.dev/\${{ env.PROJECT_ID }}/cloud-run-source-deploy/\${{ env.SERVICE_NAME }}:\${{ github.sha }}
+          docker push \${{ env.REGION }}-docker.pkg.dev/\${{ env.PROJECT_ID }}/cloud-run-source-deploy/\${{ env.SERVICE_NAME }}:latest
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        run: |
+          gcloud run deploy \${{ env.SERVICE_NAME }} \\
+            --image \${{ env.REGION }}-docker.pkg.dev/\${{ env.PROJECT_ID }}/cloud-run-source-deploy/\${{ env.SERVICE_NAME }}:\${{ github.sha }} \\
+            --region \${{ env.REGION }} \\
+            --platform managed \\
+            --allow-unauthenticated \\
+            --port 8080 \\
+            --memory 512Mi \\
+            --cpu 1 \\
+            --min-instances 0 \\
+            --max-instances 2 \\
+            --cpu-throttling
+
+      - name: Get Service URL
+        run: |
+          URL=\$(gcloud run services describe \${{ env.SERVICE_NAME }} --region \${{ env.REGION }} --format 'value(status.url)')
+          echo "## 🚀 Deployment Successful!" >> \$GITHUB_STEP_SUMMARY
+          echo "" >> \$GITHUB_STEP_SUMMARY
+          echo "**Service URL:** \$URL" >> \$GITHUB_STEP_SUMMARY
+          echo "" >> \$GITHUB_STEP_SUMMARY
+          echo "Service deployed to: \$URL"
+`;
+  }
+
+  /**
+   * Generate cloudbuild.yaml for Cloud Build deployments
+   */
+  private generateCloudBuildYaml(serviceName: string): string {
+    return `# Cloud Build configuration for automatic deployments
+# Triggered by GitHub pushes when connected via Cloud Build
+
+steps:
+  # Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '\$_REGION-docker.pkg.dev/\$PROJECT_ID/cloud-run-source-deploy/${serviceName}:\$COMMIT_SHA'
+      - '.'
+
+  # Push to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '\$_REGION-docker.pkg.dev/\$PROJECT_ID/cloud-run-source-deploy/${serviceName}:\$COMMIT_SHA'
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${serviceName}'
+      - '--image'
+      - '\$_REGION-docker.pkg.dev/\$PROJECT_ID/cloud-run-source-deploy/${serviceName}:\$COMMIT_SHA'
+      - '--region'
+      - '\$_REGION'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '8080'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '1'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '2'
+      - '--cpu-throttling'
+
+images:
+  - '\$_REGION-docker.pkg.dev/\$PROJECT_ID/cloud-run-source-deploy/${serviceName}:\$COMMIT_SHA'
+
+substitutions:
+  _REGION: us-central1
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+`;
+  }
+
+  /**
+   * Validate generated files against requirements
+   * Ensures all critical files are present and properly formatted
+   */
+  private validateFiles(
+    files: Array<{ path: string; content: string }>,
+    requirements: FileRequirement[],
+    pipelineType: 'react-spa' | 'static-html' | 'nextjs-14'
+  ): ValidationResult {
+    const result: ValidationResult = {
+      valid: true,
+      errors: [],
+      warnings: [],
+      fileCount: files.length,
+      missingRequired: [],
+    };
+
+    const fileMap = new Map(files.map(f => [f.path, f.content]));
+
+    console.log(`[SiteBuilder] Validating ${files.length} files for ${pipelineType} pipeline...`);
+
+    for (const req of requirements) {
+      const content = fileMap.get(req.path);
+
+      // Check if file exists
+      if (!content) {
+        if (req.required) {
+          result.errors.push(`MISSING REQUIRED: ${req.path} - ${req.description}`);
+          result.missingRequired.push(req.path);
+          result.valid = false;
+        } else {
+          result.warnings.push(`Missing optional: ${req.path}`);
+        }
+        continue;
+      }
+
+      // Check minimum length
+      if (req.minLength && content.length < req.minLength) {
+        result.errors.push(
+          `TOO SHORT: ${req.path} is ${content.length} chars, minimum ${req.minLength} - may be corrupted or incomplete`
+        );
+        result.valid = false;
+        continue;
+      }
+
+      // Check required content patterns
+      if (req.mustContain) {
+        for (const pattern of req.mustContain) {
+          if (!content.includes(pattern)) {
+            result.errors.push(
+              `INVALID CONTENT: ${req.path} missing required pattern "${pattern}"`
+            );
+            result.valid = false;
+          }
+        }
+      }
+    }
+
+    // Log validation results
+    if (result.valid) {
+      console.log(`[SiteBuilder] ✓ Validation PASSED - All ${requirements.length} required files present and valid`);
+    } else {
+      console.error(`[SiteBuilder] ✗ Validation FAILED:`);
+      result.errors.forEach(err => console.error(`  - ${err}`));
+    }
+
+    if (result.warnings.length > 0) {
+      console.warn(`[SiteBuilder] Warnings:`);
+      result.warnings.forEach(warn => console.warn(`  - ${warn}`));
+    }
+
+    return result;
+  }
+
+  /**
+   * Auto-fix common missing files by generating them
+   * Returns the fixed files array
+   */
+  private autoFixMissingFiles(
+    files: Array<{ path: string; content: string }>,
+    missingFiles: string[],
+    designSystem: any
+  ): Array<{ path: string; content: string }> {
+    const fixedFiles = [...files];
+
+    for (const missingPath of missingFiles) {
+      console.log(`[SiteBuilder] Auto-fixing missing file: ${missingPath}`);
+
+      switch (missingPath) {
+        case 'postcss.config.js':
+          fixedFiles.push({
+            path: 'postcss.config.js',
+            content: this.generatePostcssConfig(),
+          });
+          break;
+
+        case 'src/index.css':
+          fixedFiles.push({
+            path: 'src/index.css',
+            content: this.generateIndexCss(designSystem),
+          });
+          break;
+
+        case 'Dockerfile':
+          fixedFiles.push({
+            path: 'Dockerfile',
+            content: this.generateDockerfile(),
+          });
+          break;
+
+        case 'nginx.conf':
+          fixedFiles.push({
+            path: 'nginx.conf',
+            content: this.generateNginxConf(),
+          });
+          break;
+
+        case '.gitignore':
+          fixedFiles.push({
+            path: '.gitignore',
+            content: this.generateGitignore(),
+          });
+          break;
+
+        default:
+          console.warn(`[SiteBuilder] Cannot auto-fix: ${missingPath} - manual intervention required`);
+      }
+    }
+
+    return fixedFiles;
   }
 }

@@ -17,7 +17,7 @@ export interface WorkerConfig {
 export abstract class BaseWorker {
   protected config: WorkerConfig;
   protected activeJobs: Map<string, GenerationJob> = new Map();
-  protected isRunning: boolean = false;
+  public isRunning: boolean = false;
   private pollTimer: NodeJS.Timeout | null = null;
 
   constructor(config: WorkerConfig) {

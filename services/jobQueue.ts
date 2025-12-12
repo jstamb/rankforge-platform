@@ -71,8 +71,10 @@ type JobProgressCallback = (progress: JobProgress) => void;
 
 /**
  * Create a new generation job and add to queue
- * The job will be picked up by N8N for processing
+ * Jobs are processed directly via Edge Functions
  */
+export type ProjectType = 'nextjs' | 'static-html' | 'react-spa';
+
 export async function createGenerationJob(
   userId: string,
   websiteId: string,
@@ -83,6 +85,8 @@ export async function createGenerationJob(
     deployToCloudRun?: boolean;
     configureDNS?: boolean;
     domain?: string;
+    projectType?: ProjectType;  // Default: 'nextjs' for new sites
+    neighborhoods?: string[];
   } = {}
 ): Promise<{ jobId: string; queuePosition: number }> {
   // Get current queue position
@@ -93,7 +97,7 @@ export async function createGenerationJob(
 
   const queuePosition = (count || 0) + 1;
 
-  // Create job record
+  // Create job record - status must be 'pending' for workers to pick it up
   const { data: job, error } = await supabase
     .from('generation_jobs')
     .insert({
@@ -102,12 +106,15 @@ export async function createGenerationJob(
       job_type: 'full_generation',
       priority: 5, // Default priority (1-10, lower = higher priority)
       status: 'pending',
+      current_step: 'Queued for processing...',
       queue_position: queuePosition,
       total_steps: 7,
       completed_steps: 0,
       progress_percent: 0,
       input_payload: {
         business,
+        projectType: options.projectType ?? 'nextjs',  // Default to Next.js for new sites
+        neighborhoods: options.neighborhoods ?? business.neighborhoods,
         options: {
           useAI: options.useAI ?? true,
           deployToGithub: options.deployToGithub ?? true,

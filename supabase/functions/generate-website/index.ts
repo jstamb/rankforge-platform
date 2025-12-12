@@ -1,6 +1,6 @@
 /**
  * Supabase Edge Function: Generate Website
- * Called by N8N to generate website files using Gemini AI
+ * Generates website files using Gemini AI
  *
  * This runs server-side with access to API keys
  */
@@ -11,7 +11,7 @@ import { GoogleGenerativeAI } from 'https://esm.sh/@google/generative-ai@0.21.0'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-n8n-signature',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 interface BusinessInput {
@@ -163,9 +163,10 @@ serve(async (req) => {
 
   } catch (err) {
     console.error('Generation error:', err);
+    // Return 200 with error in body so client can display the error message
     return new Response(
-      JSON.stringify({ error: err.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ success: false, error: err.message || 'Unknown error occurred' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

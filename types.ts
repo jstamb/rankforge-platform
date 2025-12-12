@@ -24,10 +24,17 @@ export interface Business {
   description: string;
   services: string[]; // JSONB in DB
   target_keywords: string[]; // JSONB in DB
+  target_cities?: Array<{ name: string; state: string; county?: string }>; // JSONB in DB
   created_at?: string;
 }
 
 export type WebsiteStatus = 'draft' | 'generating' | 'deployed' | 'error';
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
 
 export interface Website {
   id: string;
@@ -38,11 +45,14 @@ export interface Website {
   domain?: string;
   status: WebsiteStatus;
   template: string;
-  
+
   // Deployment info
   github_repo_url?: string;
   cloud_run_service_url?: string;
-  
+
+  // AI Chat history (last 10 messages)
+  chat_history?: ChatMessage[];
+
   // Stats/Metadata (Joined or Computed)
   location_count?: number; // often a computed field
   service_count?: number;  // often a computed field

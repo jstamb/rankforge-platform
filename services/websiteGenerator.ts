@@ -1065,7 +1065,7 @@ export default function Contact() {
 }`,
   });
 
-  // Dockerfile
+  // Dockerfile for Cloud Run (must use port 8080)
   files.push({
     path: 'Dockerfile',
     content: `FROM node:20-alpine AS builder
@@ -1078,15 +1078,15 @@ RUN npm run build
 FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-EXPOSE 80
+EXPOSE 8080
 CMD ["nginx", "-g", "daemon off;"]`,
   });
 
-  // nginx.conf for SPA routing
+  // nginx.conf for SPA routing (Cloud Run requires port 8080)
   files.push({
     path: 'nginx.conf',
     content: `server {
-    listen 80;
+    listen 8080;
     server_name localhost;
     root /usr/share/nginx/html;
     index index.html;
@@ -1095,10 +1095,13 @@ CMD ["nginx", "-g", "daemon off;"]`,
         try_files $uri $uri/ /index.html;
     }
 
-    location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
+    location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
         expires 1y;
         add_header Cache-Control "public, immutable";
     }
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
 }`,
   });
 

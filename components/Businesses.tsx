@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Building2, Plus, Search, MoreVertical, Edit, Trash2,
-  Loader2, MapPin, Phone, Mail, Globe, AlertTriangle
+  Loader2, MapPin, Phone, Mail, Globe, AlertTriangle, Sparkles
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { Business } from '../types';
 
 export const Businesses: React.FC = () => {
+  const navigate = useNavigate();
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -279,6 +280,17 @@ export const Businesses: React.FC = () => {
                   )}
                 </div>
               )}
+
+              {/* Create Website Button */}
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <button
+                  onClick={() => navigate(`/websites/new?business=${business.id}`)}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
+                >
+                  <Sparkles size={16} />
+                  Create Website
+                </button>
+              </div>
             </div>
           ))}
         </div>

@@ -5,17 +5,26 @@
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "pkill -f 'tsx.*src/index' 2>/dev/null; tsx watch src/index.ts",
+    "dev:clean": "pkill -9 -f 'tsx.*rank-n-bank' 2>/dev/null; sleep 1; tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop rankforge-workers",
+    "pm2:restart": "pm2 restart rankforge-workers",
+    "pm2:logs": "pm2 logs rankforge-workers",
+    "pm2:status": "pm2 status"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
     "@google/generative-ai": "^0.21.0",
     "@supabase/supabase-js": "^2.45.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "octokit": "^4.0.2",
+    "pm2": "^6.0.14",
+    "tweetsodium": "^0.0.4",
     "zod": "^3.23.8"
   },
   "devDependencies": {

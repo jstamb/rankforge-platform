@@ -124,7 +124,7 @@ export const Automations: React.FC = () => {
 
     setRunning(workflow.id);
     try {
-      // In production, this would call your N8N webhook
+      // In production, this would call your webhook
       await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate
 
       // Update execution count
@@ -219,7 +219,7 @@ export const Automations: React.FC = () => {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Automations</h1>
-          <p className="text-slate-500 mt-1">Automate SEO tasks with N8N workflows</p>
+          <p className="text-slate-500 mt-1">Automate SEO tasks with custom workflows</p>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
@@ -230,31 +230,20 @@ export const Automations: React.FC = () => {
         </button>
       </div>
 
-      {/* N8N Connection Status */}
+      {/* Webhook Integration Info */}
       <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-rose-500 rounded-lg flex items-center justify-center text-white">
+            <div className="w-10 h-10 bg-indigo-500 rounded-lg flex items-center justify-center text-white">
               <Zap size={20} />
             </div>
             <div>
-              <h3 className="font-medium text-slate-900">N8N Connection</h3>
+              <h3 className="font-medium text-slate-900">Webhook Automations</h3>
               <p className="text-sm text-slate-500">
-                {import.meta.env.VITE_N8N_BASE_URL
-                  ? `Connected to ${import.meta.env.VITE_N8N_BASE_URL}`
-                  : 'Not configured - add VITE_N8N_BASE_URL to .env.local'}
+                Connect to any webhook-compatible automation platform (Zapier, Make, etc.)
               </p>
             </div>
           </div>
-          <a
-            href="https://n8n.io"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-indigo-600 hover:underline flex items-center gap-1"
-          >
-            Learn about N8N
-            <ExternalLink size={12} />
-          </a>
         </div>
       </div>
 
@@ -455,15 +444,15 @@ export const Automations: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">N8N Webhook URL</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Webhook URL</label>
                 <input
                   type="url"
                   value={newWorkflow.webhook_url}
                   onChange={(e) => setNewWorkflow({ ...newWorkflow, webhook_url: e.target.value })}
-                  placeholder="https://your-n8n.com/webhook/..."
+                  placeholder="https://hooks.zapier.com/... or any webhook URL"
                   className="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
                 />
-                <p className="text-xs text-slate-500 mt-1">Get this from your N8N workflow's webhook trigger node</p>
+                <p className="text-xs text-slate-500 mt-1">Get this from your automation platform (Zapier, Make, etc.)</p>
               </div>
             </div>
 

@@ -1,28 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import {
   Building2, MapPin, Search, ArrowRight, ArrowLeft, Loader2, Check,
-  Palette, Globe, Plus, X, Phone, Mail, Sparkles
+  Palette, Globe, Plus, X, Phone, Mail, Sparkles, CreditCard,
+  AlertTriangle, Github, Cloud, ExternalLink
 } from 'lucide-react';
 import { generateSeoStrategy } from '../services/geminiService';
 import { SeoPreview } from './SeoPreview';
 import { SeoConfig } from '../types';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { Business } from '../types';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { createGenerationJob, subscribeToJobProgress, JobProgress } from '../services/jobQueue';
 import { BusinessInput } from '../services/websiteGenerator';
+
+const WEBSITE_PRICE = 97; // $97 per website generation
 
 const STEPS = [
   { id: 1, title: 'Business Info', icon: Building2 },
   { id: 2, title: 'Locations', icon: MapPin },
   { id: 3, title: 'Design & SEO', icon: Palette },
-  { id: 4, title: 'Generate', icon: Sparkles },
+  { id: 4, title: 'Payment', icon: CreditCard },
+  { id: 5, title: 'Generate', icon: Sparkles },
 ];
 
-const NICHE_OPTIONS = [
-  'Plumber', 'Electrician', 'HVAC', 'Roofer', 'Landscaper',
-  'Lawyer', 'Dentist', 'Chiropractor', 'Real Estate Agent',
-  'Contractor', 'Painter', 'Locksmith', 'Pest Control', 'Other'
-];
 
 const COLOR_PRESETS = [
   { name: 'Professional Blue', primary: '#1e40af', secondary: '#3b82f6', accent: '#f97316' },
@@ -63,14 +63,38 @@ interface FormData {
 
 export const WebsiteWizard: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const businessIdFromUrl = searchParams.get('business');
+
   const [step, setStep] = useState(1);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isCreatingCheckout, setIsCreatingCheckout] = useState(false);
   const [jobProgress, setJobProgress] = useState<JobProgress | null>(null);
   const [queuePosition, setQueuePosition] = useState<number | null>(null);
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [newCityInput, setNewCityInput] = useState({ name: '', state: '' });
   const [newServiceInput, setNewServiceInput] = useState('');
+  const [createdWebsiteId, setCreatedWebsiteId] = useState<string | null>(null);
+  const [createdBusinessId, setCreatedBusinessId] = useState<string | null>(null);
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(businessIdFromUrl);
+  const [loadingBusiness, setLoadingBusiness] = useState(!!businessIdFromUrl);
+
+  // Integration readiness state
+  const [integrationsReady, setIntegrationsReady] = useState<{
+    loading: boolean;
+    github: boolean;
+    gcloud: boolean;
+    gcpRolesVerified: boolean;
+    missingRoles: string[];
+  }>({
+    loading: true,
+    github: false,
+    gcloud: false,
+    gcpRolesVerified: false,
+    missingRoles: [],
+  });
 
   const [formData, setFormData] = useState<FormData>({
     businessName: '',
@@ -92,7 +116,20 @@ export const WebsiteWizard: React.FC = () => {
 
   useEffect(() => {
     loadUser();
+    loadBusinesses();
+    checkIntegrations();
   }, []);
+
+  // Load business data if businessId is in URL
+  useEffect(() => {
+    if (businessIdFromUrl && businesses.length > 0) {
+      const business = businesses.find(b => b.id === businessIdFromUrl);
+      if (business) {
+        prefillFromBusiness(business);
+      }
+      setLoadingBusiness(false);
+    }
+  }, [businessIdFromUrl, businesses]);
 
   const loadUser = async () => {
     if (!isSupabaseConfigured()) return;
@@ -106,6 +143,163 @@ export const WebsiteWizard: React.FC = () => {
         .eq('id', user.id)
         .single();
       setProfile(profileData);
+    }
+  };
+
+  const loadBusinesses = async () => {
+    if (!isSupabaseConfigured()) return;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('businesses')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (!error && data) {
+        setBusinesses(data);
+      }
+    } catch (error) {
+      console.error('Error loading businesses:', error);
+    }
+  };
+
+  const checkIntegrations = async () => {
+    if (!isSupabaseConfigured()) {
+      setIntegrationsReady({
+        loading: false,
+        github: false,
+        gcloud: false,
+        gcpRolesVerified: false,
+        missingRoles: [],
+      });
+      return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setIntegrationsReady({
+          loading: false,
+          github: false,
+          gcloud: false,
+          gcpRolesVerified: false,
+          missingRoles: [],
+        });
+        return;
+      }
+
+      // Fetch user profile to check integrations
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('github_access_token, github_username, gcloud_service_account_key, gcloud_project_id')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError || !profileData) {
+        setIntegrationsReady({
+          loading: false,
+          github: false,
+          gcloud: false,
+          gcpRolesVerified: false,
+          missingRoles: [],
+        });
+        return;
+      }
+
+      const githubConnected = !!(profileData.github_access_token && profileData.github_username);
+      const gcloudConnected = !!(profileData.gcloud_service_account_key && profileData.gcloud_project_id);
+
+      // If GCloud is connected, verify roles
+      let gcpRolesVerified = false;
+      let missingRoles: string[] = [];
+
+      if (gcloudConnected) {
+        try {
+          const { data: roleResult, error: roleError } = await supabase.functions.invoke('verify-gcp-roles', {
+            body: { userId: user.id },
+          });
+
+          if (!roleError && roleResult?.success && roleResult?.allRolesFound) {
+            gcpRolesVerified = true;
+          } else if (roleResult?.missingRoles) {
+            missingRoles = roleResult.missingRoles;
+          }
+        } catch (err) {
+          console.error('Error verifying GCP roles:', err);
+        }
+      }
+
+      setIntegrationsReady({
+        loading: false,
+        github: githubConnected,
+        gcloud: gcloudConnected,
+        gcpRolesVerified,
+        missingRoles,
+      });
+    } catch (error) {
+      console.error('Error checking integrations:', error);
+      setIntegrationsReady({
+        loading: false,
+        github: false,
+        gcloud: false,
+        gcpRolesVerified: false,
+        missingRoles: [],
+      });
+    }
+  };
+
+  const prefillFromBusiness = (business: Business) => {
+    // Use business_type directly as the niche value
+    const nicheValue = business.business_type || '';
+
+    setFormData(prev => ({
+      ...prev,
+      businessName: business.business_name || '',
+      niche: nicheValue,
+      phone: business.phone || '',
+      email: business.email || '',
+      description: business.description || '',
+      services: business.services || [],
+      addressStreet: business.address_street || '',
+      addressCity: business.address_city || '',
+      addressState: business.address_state || '',
+      addressZip: business.address_zip || '',
+      targetCities: business.target_cities || [],
+    }));
+    setCreatedBusinessId(business.id);
+  };
+
+  const handleBusinessSelect = (businessId: string) => {
+    setSelectedBusinessId(businessId);
+    if (businessId) {
+      const business = businesses.find(b => b.id === businessId);
+      if (business) {
+        prefillFromBusiness(business);
+      }
+    } else {
+      // Clear form if "New Business" is selected
+      setFormData({
+        businessName: '',
+        niche: '',
+        phone: '',
+        email: '',
+        description: '',
+        services: [],
+        addressStreet: '',
+        addressCity: '',
+        addressState: '',
+        addressZip: '',
+        targetCities: [],
+        colorScheme: COLOR_PRESETS[0],
+        webhookUrl: '',
+        yearsInBusiness: 10,
+        seoConfig: null,
+      });
+      setCreatedBusinessId(null);
     }
   };
 
@@ -166,56 +360,140 @@ export const WebsiteWizard: React.FC = () => {
     }
   };
 
-  const handleStartGeneration = async () => {
+  // Admin emails that skip payment
+  const ADMIN_EMAILS = ['pyfooty@gmail.com'];
+  const isAdmin = user?.email && ADMIN_EMAILS.includes(user.email);
+
+  // Step 1: Create website/business records and proceed to payment (or skip for admins)
+  const handleProceedToPayment = async () => {
     if (!user) {
       alert('Please sign in to generate a website');
       navigate('/login');
       return;
     }
 
-    setIsGenerating(true);
-    setStep(4);
+    setIsCreatingCheckout(true);
 
     try {
-      // Create business record
-      const { data: business, error: businessError } = await supabase
-        .from('businesses')
-        .insert({
-          user_id: user.id,
-          business_name: formData.businessName,
-          business_type: formData.niche.toLowerCase(),
-          phone: formData.phone,
-          email: formData.email,
-          address_street: formData.addressStreet,
-          address_city: formData.addressCity,
-          address_state: formData.addressState,
-          address_zip: formData.addressZip,
-          description: formData.description,
-          services: formData.services,
-          target_keywords: formData.seoConfig?.keywords || [],
-        })
-        .select()
-        .single();
+      let businessId = createdBusinessId;
 
-      if (businessError) throw businessError;
+      // Only create business if we don't already have one (from pre-fill)
+      if (!businessId) {
+        const { data: business, error: businessError } = await supabase
+          .from('businesses')
+          .insert({
+            user_id: user.id,
+            business_name: formData.businessName,
+            business_type: formData.niche.toLowerCase(),
+            phone: formData.phone,
+            email: formData.email,
+            address_street: formData.addressStreet,
+            address_city: formData.addressCity,
+            address_state: formData.addressState,
+            address_zip: formData.addressZip,
+            description: formData.description,
+            services: formData.services,
+            target_keywords: formData.seoConfig?.keywords || [],
+            target_cities: formData.targetCities,
+          })
+          .select()
+          .single();
 
-      // Create website record
-      const slug = formData.businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        if (businessError) throw businessError;
+        businessId = business.id;
+        setCreatedBusinessId(business.id);
+      }
+
+      // Create website record with unique slug (add timestamp suffix to prevent duplicates)
+      const baseSlug = formData.businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const uniqueSuffix = Date.now().toString(36).slice(-4); // Short unique suffix
+      const slug = `${baseSlug}-${uniqueSuffix}`;
+
       const { data: website, error: websiteError } = await supabase
         .from('websites')
         .insert({
           user_id: user.id,
-          business_id: business.id,
+          business_id: businessId,
           name: `${formData.businessName} Website`,
           slug,
-          status: 'generating',
+          status: 'draft', // Will be updated when generation starts
           template: 'modern',
+          payment_status: isAdmin ? 'paid' : 'unpaid', // Admins skip payment
         })
         .select()
         .single();
 
       if (websiteError) throw websiteError;
 
+      setCreatedWebsiteId(website.id);
+
+      // If admin, skip payment and redirect to website settings page
+      // The settings page will show the Generate button and any errors clearly
+      if (isAdmin) {
+        navigate(`/websites/${website.id}/settings?autostart=true`);
+        return;
+      } else {
+        // Move to payment step for non-admins
+        setStep(4);
+      }
+      setIsCreatingCheckout(false);
+
+    } catch (error: any) {
+      console.error('Failed to create website:', error);
+      alert('Failed to create website: ' + error.message);
+      setIsCreatingCheckout(false);
+    }
+  };
+
+  // Step 2: Redirect to Stripe checkout
+  const handleCheckout = async () => {
+    if (!createdWebsiteId || !user) return;
+
+    setIsCreatingCheckout(true);
+
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const response = await fetch(`${supabaseUrl}/functions/v1/create-checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
+          websiteId: createdWebsiteId,
+          userId: user.id,
+          websiteName: formData.businessName,
+          returnUrl: window.location.origin,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create checkout session');
+      }
+
+      // Redirect to Stripe Checkout
+      window.location.href = data.checkoutUrl;
+
+    } catch (error: any) {
+      console.error('Checkout failed:', error);
+      alert('Failed to start checkout: ' + error.message);
+      setIsCreatingCheckout(false);
+    }
+  };
+
+  // Start generation - creates job and lets workers handle the multi-step process
+  // Workers generate 50+ pages with AI content, deploy to GitHub, and deploy to Cloud Run
+  const handleStartGeneration = async () => {
+    if (!user || !createdWebsiteId) {
+      return;
+    }
+
+    setIsGenerating(true);
+    setStep(5);
+
+    try {
       // Build business input for generator
       const businessInput: BusinessInput = {
         businessName: formData.businessName,
@@ -238,14 +516,14 @@ export const WebsiteWizard: React.FC = () => {
         yearsInBusiness: formData.yearsInBusiness,
       };
 
-      // Create job in queue (N8N will process it)
+      // Create job in queue - workers will pick this up automatically
       const { jobId, queuePosition: pos } = await createGenerationJob(
         user.id,
-        website.id,
+        createdWebsiteId,
         businessInput,
         {
           useAI: true,
-          deployToGithub: !!profile?.github_access_token,
+          deployToGithub: true,
           deployToCloudRun: true,
         }
       );
@@ -254,12 +532,19 @@ export const WebsiteWizard: React.FC = () => {
       setJobProgress({
         jobId,
         status: 'pending',
-        currentStep: 'Queued for processing',
+        currentStep: 'Queued for processing...',
         progress: 0,
         queuePosition: pos,
       });
 
-      // Subscribe to real-time updates
+      // Subscribe to real-time updates from the workers
+      // Workers will update the job status as they progress through:
+      // 1. Planning site architecture (hub-and-spoke model)
+      // 2. Creating design system
+      // 3. Generating 50+ pages of content with AI
+      // 4. Building static files
+      // 5. Deploying to GitHub
+      // 6. Deploying to Cloud Run
       const channel = subscribeToJobProgress(jobId, (progress) => {
         setJobProgress(progress);
         setQueuePosition(progress.queuePosition || null);
@@ -269,17 +554,15 @@ export const WebsiteWizard: React.FC = () => {
         }
       });
 
-      // Cleanup subscription when component unmounts
-      return () => {
-        channel.unsubscribe();
-      };
+      // Store channel reference for cleanup (handled by real-time subscription)
+      // The subscription will automatically update UI as workers progress
 
     } catch (error: any) {
-      console.error('Job creation failed:', error);
+      console.error('Generation failed:', error);
       setJobProgress({
         jobId: '',
         status: 'failed',
-        currentStep: 'Failed to create job',
+        currentStep: 'Failed to create generation job',
         progress: 0,
         error: error.message,
       });
@@ -300,8 +583,268 @@ export const WebsiteWizard: React.FC = () => {
     }
   };
 
-  // Generation Progress View
+  // Check if all integrations are ready
+  const allIntegrationsReady = integrationsReady.github && integrationsReady.gcloud && integrationsReady.gcpRolesVerified;
+
+  // Integration Gate - Show when integrations aren't ready
+  if (!integrationsReady.loading && !allIntegrationsReady) {
+    return (
+      <div className="max-w-3xl mx-auto py-12">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 bg-amber-100">
+            <AlertTriangle className="w-8 h-8 text-amber-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900">Setup Required</h2>
+          <p className="text-slate-500 mt-2">
+            Connect your integrations to enable automatic website deployment
+          </p>
+        </div>
+
+        <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+          <h3 className="font-semibold text-slate-900 mb-4">Required Integrations</h3>
+          <p className="text-sm text-slate-600 mb-6">
+            To generate and deploy your website automatically, we need access to GitHub (for code storage)
+            and Google Cloud (for hosting). Complete these steps to continue.
+          </p>
+
+          <div className="space-y-4">
+            {/* GitHub Status */}
+            <div className={`flex items-center justify-between p-4 rounded-lg border ${
+              integrationsReady.github
+                ? 'bg-emerald-50 border-emerald-200'
+                : 'bg-slate-50 border-slate-200'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  integrationsReady.github ? 'bg-emerald-100' : 'bg-slate-200'
+                }`}>
+                  <Github size={20} className={integrationsReady.github ? 'text-emerald-600' : 'text-slate-500'} />
+                </div>
+                <div>
+                  <p className="font-medium text-slate-900">GitHub</p>
+                  <p className="text-sm text-slate-500">
+                    {integrationsReady.github ? 'Connected' : 'Not connected'}
+                  </p>
+                </div>
+              </div>
+              {integrationsReady.github ? (
+                <Check size={20} className="text-emerald-600" />
+              ) : (
+                <Link
+                  to="/integrations"
+                  className="px-4 py-2 text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                >
+                  Connect
+                </Link>
+              )}
+            </div>
+
+            {/* Google Cloud Status */}
+            <div className={`flex items-center justify-between p-4 rounded-lg border ${
+              integrationsReady.gcloud
+                ? integrationsReady.gcpRolesVerified
+                  ? 'bg-emerald-50 border-emerald-200'
+                  : 'bg-amber-50 border-amber-200'
+                : 'bg-slate-50 border-slate-200'
+            }`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  integrationsReady.gcloud
+                    ? integrationsReady.gcpRolesVerified
+                      ? 'bg-emerald-100'
+                      : 'bg-amber-100'
+                    : 'bg-slate-200'
+                }`}>
+                  <Cloud size={20} className={
+                    integrationsReady.gcloud
+                      ? integrationsReady.gcpRolesVerified
+                        ? 'text-emerald-600'
+                        : 'text-amber-600'
+                      : 'text-slate-500'
+                  } />
+                </div>
+                <div>
+                  <p className="font-medium text-slate-900">Google Cloud</p>
+                  <p className="text-sm text-slate-500">
+                    {!integrationsReady.gcloud
+                      ? 'Not connected'
+                      : integrationsReady.gcpRolesVerified
+                        ? 'Connected & verified'
+                        : 'Missing required roles'}
+                  </p>
+                </div>
+              </div>
+              {integrationsReady.gcloud && integrationsReady.gcpRolesVerified ? (
+                <Check size={20} className="text-emerald-600" />
+              ) : (
+                <Link
+                  to="/integrations"
+                  className="px-4 py-2 text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                >
+                  {integrationsReady.gcloud ? 'Fix Roles' : 'Connect'}
+                </Link>
+              )}
+            </div>
+
+            {/* Missing Roles Warning */}
+            {integrationsReady.gcloud && !integrationsReady.gcpRolesVerified && integrationsReady.missingRoles.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <p className="text-sm font-medium text-amber-800 mb-2">Missing GCP Roles:</p>
+                <ul className="text-sm text-amber-700 space-y-1">
+                  {integrationsReady.missingRoles.map((role, i) => (
+                    <li key={i} className="flex items-center gap-2">
+                      <X size={14} className="text-amber-500" />
+                      {role}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-amber-600 mt-2">
+                  Add these roles to your service account in the Google Cloud Console.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Why We Need These */}
+        <div className="bg-indigo-50 rounded-xl border border-indigo-200 p-6 mb-6">
+          <h3 className="font-semibold text-indigo-900 mb-3">Why do I need these?</h3>
+          <ul className="space-y-2 text-sm text-indigo-700">
+            <li className="flex items-start gap-2">
+              <Github size={16} className="mt-0.5 flex-shrink-0" />
+              <span><strong>GitHub</strong> stores your website code and enables version control for updates.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <Cloud size={16} className="mt-0.5 flex-shrink-0" />
+              <span><strong>Google Cloud</strong> hosts your website with automatic deployments and SSL.</span>
+            </li>
+          </ul>
+        </div>
+
+        <div className="flex justify-center">
+          <Link
+            to="/integrations"
+            className="flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
+          >
+            Go to Integrations
+            <ExternalLink size={18} />
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Loading state while checking integrations
+  if (integrationsReady.loading) {
+    return (
+      <div className="max-w-3xl mx-auto py-12 flex flex-col items-center justify-center">
+        <Loader2 className="w-12 h-12 text-indigo-600 animate-spin mb-4" />
+        <p className="text-slate-600">Checking integrations...</p>
+      </div>
+    );
+  }
+
+  // Payment Step View
   if (step === 4) {
+    return (
+      <div className="max-w-3xl mx-auto py-12">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 bg-indigo-100">
+            <CreditCard className="w-8 h-8 text-indigo-600" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900">Complete Your Purchase</h2>
+          <p className="text-slate-500 mt-2">
+            One-time payment for your AI-generated website
+          </p>
+        </div>
+
+        {/* Order Summary */}
+        <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+          <h3 className="font-semibold text-slate-900 mb-4">Order Summary</h3>
+
+          <div className="space-y-3">
+            <div className="flex justify-between items-center">
+              <div>
+                <p className="font-medium text-slate-900">{formData.businessName} Website</p>
+                <p className="text-sm text-slate-500">AI-powered SEO website generation</p>
+              </div>
+              <span className="text-lg font-semibold text-slate-900">${WEBSITE_PRICE}</span>
+            </div>
+
+            <div className="border-t border-slate-200 pt-3">
+              <div className="flex justify-between text-sm text-slate-600">
+                <span>Subtotal</span>
+                <span>${WEBSITE_PRICE}.00</span>
+              </div>
+            </div>
+
+            <div className="border-t border-slate-200 pt-3">
+              <div className="flex justify-between font-semibold text-slate-900">
+                <span>Total</span>
+                <span>${WEBSITE_PRICE}.00</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* What's Included */}
+        <div className="bg-slate-50 rounded-xl border border-slate-200 p-6 mb-6">
+          <h3 className="font-semibold text-slate-900 mb-4">What's Included</h3>
+          <ul className="space-y-2">
+            {[
+              'AI-generated SEO-optimized content',
+              'Professional responsive design',
+              'Location-specific landing pages',
+              'Schema markup for local SEO',
+              'GitHub repository deployment',
+              'Cloud Run hosting setup',
+              'Unlimited future content changes',
+            ].map((item, i) => (
+              <li key={i} className="flex items-center gap-2 text-sm text-slate-600">
+                <Check size={16} className="text-emerald-500 flex-shrink-0" />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-4">
+          <button
+            onClick={() => setStep(3)}
+            className="flex-1 px-6 py-3 border border-slate-300 text-slate-700 rounded-lg font-medium hover:bg-slate-50 transition-colors"
+          >
+            <ArrowLeft size={16} className="inline mr-2" />
+            Back
+          </button>
+          <button
+            onClick={handleCheckout}
+            disabled={isCreatingCheckout}
+            className="flex-1 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors disabled:opacity-70 flex items-center justify-center gap-2"
+          >
+            {isCreatingCheckout ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                Processing...
+              </>
+            ) : (
+              <>
+                <CreditCard size={18} />
+                Pay ${WEBSITE_PRICE} & Generate
+              </>
+            )}
+          </button>
+        </div>
+
+        <p className="text-center text-xs text-slate-400 mt-4">
+          Secure payment powered by Stripe. Your card details are never stored on our servers.
+        </p>
+      </div>
+    );
+  }
+
+  // Generation Progress View
+  if (step === 5) {
     const isPending = jobProgress?.status === 'pending' || jobProgress?.status === 'queued';
     const isProcessing = jobProgress?.status === 'processing';
     const isCompleted = jobProgress?.status === 'completed';
@@ -390,7 +933,7 @@ export const WebsiteWizard: React.FC = () => {
             <div>
               <p className="font-medium text-slate-900">{jobProgress?.currentStep || 'Waiting...'}</p>
               <p className="text-sm text-slate-500">
-                {isProcessing ? 'Processing by N8N worker' :
+                {isProcessing ? 'Processing...' :
                  isPending ? 'Waiting in queue' :
                  isCompleted ? 'All steps completed' :
                  'Check error details below'}
@@ -473,7 +1016,7 @@ export const WebsiteWizard: React.FC = () => {
       <div className="mb-8">
         <div className="flex items-center justify-between relative">
           <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-slate-200 -z-10" />
-          {STEPS.slice(0, 3).map((s) => (
+          {STEPS.slice(0, 4).map((s) => (
             <div key={s.id} className="flex flex-col items-center bg-slate-50 px-2">
               <div
                 className={`w-10 h-10 rounded-full flex items-center justify-center border-2 transition-colors ${
@@ -502,6 +1045,33 @@ export const WebsiteWizard: React.FC = () => {
                 <p className="text-slate-500 mt-1">We'll use this to create your SEO-optimized website.</p>
               </div>
 
+              {/* Business Selector */}
+              {businesses.length > 0 && (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                  <label className="block text-sm font-medium text-indigo-900 mb-2">
+                    <Building2 size={16} className="inline mr-2" />
+                    Use an existing business or create new
+                  </label>
+                  <select
+                    className="w-full px-4 py-2.5 rounded-lg border border-indigo-300 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                    value={selectedBusinessId || ''}
+                    onChange={e => handleBusinessSelect(e.target.value)}
+                  >
+                    <option value="">+ Create New Business</option>
+                    {businesses.map(business => (
+                      <option key={business.id} value={business.id}>
+                        {business.business_name} ({business.business_type})
+                      </option>
+                    ))}
+                  </select>
+                  {selectedBusinessId && (
+                    <p className="text-xs text-indigo-600 mt-2">
+                      Business info will be pre-filled. You can still edit below.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="grid gap-6">
                 <div className="grid md:grid-cols-2 gap-4">
                   <div>
@@ -516,16 +1086,13 @@ export const WebsiteWizard: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Business Type/Niche *</label>
-                    <select
+                    <input
+                      type="text"
                       className="w-full px-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                      placeholder="e.g. Plumber, Electrician, Lawyer, Dentist"
                       value={formData.niche}
                       onChange={e => setFormData({...formData, niche: e.target.value})}
-                    >
-                      <option value="">Select your niche...</option>
-                      {NICHE_OPTIONS.map(n => (
-                        <option key={n} value={n}>{n}</option>
-                      ))}
-                    </select>
+                    />
                   </div>
                 </div>
 
@@ -742,7 +1309,7 @@ export const WebsiteWizard: React.FC = () => {
                   <input
                     type="url"
                     className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                    placeholder="https://hooks.zapier.com/... or N8N webhook"
+                    placeholder="https://hooks.zapier.com/... or webhook URL"
                     value={formData.webhookUrl}
                     onChange={e => setFormData({...formData, webhookUrl: e.target.value})}
                   />
@@ -824,16 +1391,21 @@ export const WebsiteWizard: React.FC = () => {
 
           <button
             onClick={() => {
-              if (step === 3) handleStartGeneration();
+              if (step === 3) handleProceedToPayment();
               else setStep(s => s + 1);
             }}
-            disabled={!canProceed() || isGenerating}
+            disabled={!canProceed() || isCreatingCheckout}
             className="flex items-center px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {step === 3 ? (
+            {isCreatingCheckout ? (
               <>
-                <Sparkles size={16} className="mr-2" />
-                Start Generation
+                <Loader2 size={16} className="mr-2 animate-spin" />
+                Processing...
+              </>
+            ) : step === 3 ? (
+              <>
+                <CreditCard size={16} className="mr-2" />
+                Continue to Payment
               </>
             ) : (
               <>

@@ -6,7 +6,9 @@ export type JobType =
   | 'design_generation'
   | 'site_build'
   | 'deployment'
-  | 'full_generation'; // Legacy - runs all steps
+  | 'cloud_run_deploy'
+  | 'full_generation' // Legacy - runs all steps
+  | 'website_edit'; // Chat-initiated edits (add pages, update content, etc.)
 
 export type JobStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
@@ -28,12 +30,21 @@ export interface GenerationJob {
   completed_steps: number;
   progress_percent: number;
 
+  // Recovery tracking
+  retry_count?: number;
+  heartbeat_at?: string;
+
+  // Horizontal scaling - which worker is processing this job
+  worker_id?: string;
+
   input_payload: JobInputPayload;
   output_result?: JobOutputResult;
   error_details?: {
     message: string;
     step?: string;
     stack?: string;
+    retry_count?: number;
+    last_failure?: string;
   };
 }
 

@@ -1,14 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import {
   LayoutDashboard, Globe, Building2, Settings, Plug, Bell, User, LogOut, LogIn
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { signOut } from '../services/auth';
-
-interface LayoutProps {
-  children: React.ReactNode;
-}
 
 const SidebarItem = ({ icon: Icon, label, path, active }: any) => (
   <Link 
@@ -24,7 +20,7 @@ const SidebarItem = ({ icon: Icon, label, path, active }: any) => (
   </Link>
 );
 
-export const Layout: React.FC<LayoutProps> = ({ children }) => {
+export const Layout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
@@ -60,12 +56,11 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       <div className="min-h-screen bg-slate-50 flex flex-col">
          <header className="h-16 bg-white border-b border-slate-200 flex items-center px-6 justify-between">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/20" />
-              <span className="text-slate-900 font-bold text-lg tracking-tight">RankForge</span>
+              <img src="/rank-forge-logo.svg" alt="RankForge" className="h-8 w-auto" />
             </div>
          </header>
          <main className="flex-1">
-           {children}
+           <Outlet />
          </main>
       </div>
     );
@@ -76,14 +71,13 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       {/* Sidebar */}
       <aside className="w-64 bg-slate-900 border-r border-slate-800 fixed h-full z-20 hidden md:flex flex-col">
         <div className="h-16 flex items-center px-6 border-b border-slate-800">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 mr-3 shadow-lg shadow-indigo-500/20" />
-          <span className="text-white font-bold text-lg tracking-tight">RankForge</span>
+          <img src="/rank-forge-logo.svg" alt="RankForge" className="h-8 w-auto brightness-0 invert" />
         </div>
 
         <nav className="flex-1 p-4 overflow-y-auto">
           <div className="mb-6">
             <p className="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Platform</p>
-            <SidebarItem icon={LayoutDashboard} label="Dashboard" path="/" active={location.pathname === '/'} />
+            <SidebarItem icon={LayoutDashboard} label="Dashboard" path="/dashboard" active={location.pathname === '/dashboard' || location.pathname === '/'} />
             <SidebarItem icon={Globe} label="Websites" path="/websites" active={isActive('/websites')} />
             <SidebarItem icon={Building2} label="Businesses" path="/businesses" active={isActive('/businesses')} />
           </div>
@@ -218,7 +212,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         {/* Page Content */}
         <main className="flex-1 p-6 md:p-8 overflow-y-auto">
-          {children}
+          <Outlet />
         </main>
       </div>
     </div>

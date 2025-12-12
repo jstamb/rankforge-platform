@@ -1,6 +1,6 @@
 /**
  * Supabase Edge Function: Process Generation Job
- * Called by N8N to process website generation jobs
+ * Processes website generation job status updates
  *
  * This runs server-side with access to secrets and APIs
  */
@@ -10,7 +10,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-n8n-signature',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
 interface JobPayload {
@@ -29,17 +29,6 @@ serve(async (req) => {
   }
 
   try {
-    // Verify N8N signature (optional security layer)
-    const n8nSignature = req.headers.get('x-n8n-signature');
-    const expectedSignature = Deno.env.get('N8N_WEBHOOK_SECRET');
-
-    if (expectedSignature && n8nSignature !== expectedSignature) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid signature' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
     const payload: JobPayload = await req.json();
     const { jobId, action, step, progress, result, error } = payload;
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Mail, Building2, CreditCard, Shield, Bell, Loader2, Check, AlertCircle } from 'lucide-react';
+import { User, Mail, Building2, CreditCard, Shield, Bell, Loader2, Check, AlertCircle, DollarSign } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { UserProfile } from '../types';
 
@@ -246,68 +246,91 @@ export const Settings: React.FC = () => {
       {activeTab === 'billing' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
           <div className="p-6 border-b border-slate-200">
-            <h2 className="text-lg font-semibold text-slate-900">Subscription & Billing</h2>
-            <p className="text-sm text-slate-500 mt-1">Manage your subscription plan</p>
+            <h2 className="text-lg font-semibold text-slate-900">Credits & Billing</h2>
+            <p className="text-sm text-slate-500 mt-1">Manage your website generation credits</p>
           </div>
 
           <div className="p-6">
-            {/* Current Plan */}
+            {/* Credits Balance */}
             <div className="bg-gradient-to-r from-indigo-500 to-violet-500 rounded-xl p-6 text-white mb-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-indigo-100 text-sm">Current Plan</p>
-                  <h3 className="text-2xl font-bold mt-1 capitalize">{profile.subscription_tier || 'Free'}</h3>
+                  <p className="text-indigo-100 text-sm">Available Credits</p>
+                  <h3 className="text-4xl font-bold mt-1">1</h3>
+                  <p className="text-sm text-indigo-200 mt-1">Free trial credit</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-indigo-100 text-sm">Monthly</p>
-                  <p className="text-2xl font-bold mt-1">
-                    {profile.subscription_tier === 'free' ? '$0' : profile.subscription_tier === 'pro' ? '$49' : '$199'}
-                  </p>
+                  <p className="text-indigo-100 text-sm">Price per Website</p>
+                  <p className="text-3xl font-bold mt-1">$250</p>
+                  <p className="text-sm text-indigo-200 mt-1">One-time payment</p>
                 </div>
-              </div>
-              <div className="mt-4 pt-4 border-t border-white/20">
-                <p className="text-sm text-indigo-100">
-                  {profile.subscription_tier === 'free'
-                    ? '3 website generations per month'
-                    : profile.subscription_tier === 'pro'
-                    ? '25 website generations per month'
-                    : 'Unlimited website generations'}
-                </p>
               </div>
             </div>
 
-            {/* Upgrade Options */}
-            {profile.subscription_tier === 'free' && (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="border border-slate-200 rounded-xl p-6 hover:border-indigo-300 transition-colors">
-                  <h4 className="font-semibold text-slate-900">Pro</h4>
-                  <p className="text-2xl font-bold text-slate-900 mt-2">$49<span className="text-sm font-normal text-slate-500">/month</span></p>
-                  <ul className="mt-4 space-y-2 text-sm text-slate-600">
-                    <li>25 generations/month</li>
-                    <li>3 concurrent jobs</li>
-                    <li>50 locations per site</li>
-                    <li>Email support</li>
-                  </ul>
-                  <button className="w-full mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors">
-                    Upgrade to Pro
-                  </button>
+            {/* Key Value Props */}
+            <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
+                  <CreditCard className="w-5 h-5 text-emerald-600" />
                 </div>
-
-                <div className="border border-slate-200 rounded-xl p-6 hover:border-violet-300 transition-colors">
-                  <h4 className="font-semibold text-slate-900">Enterprise</h4>
-                  <p className="text-2xl font-bold text-slate-900 mt-2">$199<span className="text-sm font-normal text-slate-500">/month</span></p>
-                  <ul className="mt-4 space-y-2 text-sm text-slate-600">
-                    <li>100 generations/month</li>
-                    <li>10 concurrent jobs</li>
-                    <li>500 locations per site</li>
-                    <li>Priority support</li>
-                  </ul>
-                  <button className="w-full mt-4 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium transition-colors">
-                    Upgrade to Enterprise
-                  </button>
+                <div>
+                  <h4 className="font-medium text-emerald-900">No AI Usage Fees</h4>
+                  <p className="text-sm text-emerald-700">Unlimited Claude AI usage included. No per-token charges.</p>
                 </div>
               </div>
-            )}
+            </div>
+
+            {/* What's Included */}
+            <div className="border border-slate-200 rounded-xl p-6 mb-6">
+              <h4 className="font-semibold text-slate-900 mb-4">What's included with each website:</h4>
+              <div className="grid md:grid-cols-2 gap-3">
+                {[
+                  'Full SEO-optimized website',
+                  'Up to 100+ pages',
+                  'Custom AI design system',
+                  'GitHub deployment',
+                  'Cloud Run hosting setup',
+                  'Cloudflare DNS config',
+                  'AI website editor',
+                  'Schema markup & meta tags',
+                  'Mobile-responsive design',
+                  'Lifetime code ownership',
+                ].map((feature, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm text-slate-600">
+                    <Check size={16} className="text-emerald-500 flex-shrink-0" />
+                    {feature}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Buy Credits */}
+            <div className="border-2 border-indigo-200 rounded-xl p-6 bg-indigo-50/50">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h4 className="font-semibold text-slate-900">Buy Website Credits</h4>
+                  <p className="text-sm text-slate-500">Generate additional websites anytime</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-3xl font-bold text-slate-900">$250</span>
+                  <span className="text-slate-500 ml-1">/ website</span>
+                </div>
+              </div>
+              <button className="w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white rounded-lg font-medium transition-colors">
+                Purchase Website Credit
+              </button>
+              <p className="text-xs text-slate-500 text-center mt-3">
+                Credits never expire. Build when you're ready.
+              </p>
+            </div>
+
+            {/* Volume Pricing */}
+            <div className="mt-6 text-center text-sm text-slate-500">
+              Building multiple websites?{' '}
+              <a href="#" className="text-indigo-600 font-medium hover:text-indigo-700">
+                Contact us for volume pricing
+              </a>
+            </div>
           </div>
         </div>
       )}

@@ -1,8 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
+import { randomUUID } from 'crypto';
 import type { GenerationJob, JobStatus } from './types.js';
 
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY!;
+
+// Worker configuration
+const MAX_CONCURRENT_JOBS = parseInt(process.env.MAX_CONCURRENT_JOBS || '3', 10);
+
+// Generate unique worker ID for this instance
+export const WORKER_ID = `worker-${randomUUID().slice(0, 8)}-${process.pid}`;
+console.log(`[Worker] Instance ID: ${WORKER_ID}`);
+console.log(`[Worker] Max concurrent jobs: ${MAX_CONCURRENT_JOBS}`);
 
 // Log configuration status at startup (with key prefix for debugging)
 console.log('[Supabase] URL:', supabaseUrl);
@@ -65,12 +74,74 @@ export async function resetStaleJobs(): Promise<number> {
 }
 
 /**
- * Fetch the next available job to process
+ * Check if this worker can accept more jobs based on MAX_CONCURRENT_JOBS
+ */
+export async function canAcceptMoreJobs(): Promise<boolean> {
+  const { data, error } = await supabase.rpc('get_worker_job_count', {
+    p_worker_id: WORKER_ID,
+  });
+
+  if (error) {
+    console.error('[Supabase] Error checking job count:', error.message);
+    // Fall back to allowing jobs on error
+    return true;
+  }
+
+  const currentJobs = data || 0;
+  const canAccept = currentJobs < MAX_CONCURRENT_JOBS;
+
+  if (!canAccept) {
+    console.log(`[Supabase] Worker at capacity: ${currentJobs}/${MAX_CONCURRENT_JOBS} jobs`);
+  }
+
+  return canAccept;
+}
+
+/**
+ * Fetch the next available job to process using atomic row locking
+ * Uses FOR UPDATE SKIP LOCKED for horizontal scaling support
  */
 export async function claimNextJob(jobTypes: string[]): Promise<GenerationJob | null> {
   // First, check for and reset any stale processing jobs
   await resetStaleJobs();
 
+  // Check if we can accept more jobs
+  const canAccept = await canAcceptMoreJobs();
+  if (!canAccept) {
+    return null;
+  }
+
+  // Try to claim a job using the atomic RPC function
+  const { data: jobs, error } = await supabase.rpc('claim_next_job', {
+    p_job_types: jobTypes,
+    p_worker_id: WORKER_ID,
+  });
+
+  if (error) {
+    // If the RPC doesn't exist yet, fall back to old method
+    if (error.code === 'PGRST202' || error.message.includes('function') || error.message.includes('does not exist')) {
+      console.log('[Supabase] RPC not available, using fallback claim method');
+      return claimNextJobFallback(jobTypes);
+    }
+    console.error('[Supabase] Error claiming job:', error.message, error.code);
+    return null;
+  }
+
+  // Log query results for debugging
+  console.log(`[Supabase] Claim result: ${jobs?.length || 0} job(s) claimed by ${WORKER_ID}`);
+
+  if (!jobs || jobs.length === 0) {
+    return null;
+  }
+
+  return jobs[0] as GenerationJob;
+}
+
+/**
+ * Fallback claim method for when RPC is not available
+ * Used during migration period before RPC is deployed
+ */
+async function claimNextJobFallback(jobTypes: string[]): Promise<GenerationJob | null> {
   // Get oldest pending job of specified types
   const { data: jobs, error, count } = await supabase
     .from('generation_jobs')
@@ -86,7 +157,6 @@ export async function claimNextJob(jobTypes: string[]): Promise<GenerationJob | 
     return null;
   }
 
-  // Log query results for debugging
   console.log(`[Supabase] Query result: ${jobs?.length || 0} jobs returned, total count: ${count}`);
 
   if (!jobs || jobs.length === 0) {
@@ -96,6 +166,8 @@ export async function claimNextJob(jobTypes: string[]): Promise<GenerationJob | 
   const job = jobs[0];
 
   // Atomically claim the job by updating status
+  // Note: worker_id column doesn't exist, so we just track in logs
+  console.log(`[Supabase] Attempting to claim job ${job.id} with worker ${WORKER_ID}`);
   const { data: claimed, error: claimError } = await supabase
     .from('generation_jobs')
     .update({
@@ -104,16 +176,63 @@ export async function claimNextJob(jobTypes: string[]): Promise<GenerationJob | 
       current_step: 'Initializing...',
     })
     .eq('id', job.id)
-    .eq('status', 'pending') // Ensure it's still pending
+    .eq('status', 'pending')
     .select()
     .single();
 
   if (claimError || !claimed) {
-    // Job was claimed by another worker
+    console.log('[Supabase] Job claimed by another worker');
     return null;
   }
 
   return claimed as GenerationJob;
+}
+
+/**
+ * Update heartbeat for a job to indicate worker is still alive
+ */
+export async function updateJobHeartbeat(jobId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('update_job_heartbeat', {
+    p_job_id: jobId,
+    p_worker_id: WORKER_ID,
+  });
+
+  if (error) {
+    // Fallback if RPC doesn't exist
+    if (error.code === 'PGRST202') {
+      await supabase
+        .from('generation_jobs')
+        .update({ heartbeat_at: new Date().toISOString() })
+        .eq('id', jobId);
+      return true;
+    }
+    console.error('[Supabase] Error updating heartbeat:', error.message);
+    return false;
+  }
+
+  return data || false;
+}
+
+/**
+ * Get total number of jobs being processed across all workers
+ */
+export async function getTotalProcessingJobs(): Promise<number> {
+  const { data, error } = await supabase.rpc('get_processing_job_count');
+
+  if (error) {
+    // Fallback if RPC doesn't exist
+    if (error.code === 'PGRST202') {
+      const { count } = await supabase
+        .from('generation_jobs')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'processing');
+      return count || 0;
+    }
+    console.error('[Supabase] Error getting processing count:', error.message);
+    return 0;
+  }
+
+  return data || 0;
 }
 
 /**

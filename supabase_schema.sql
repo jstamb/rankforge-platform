@@ -296,7 +296,6 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   github_username TEXT,
   cloudflare_api_token TEXT,
   cloudflare_account_id TEXT,
-  n8n_api_key TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -475,7 +474,7 @@ CREATE TABLE IF NOT EXISTS public.generation_jobs (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- N8N automation workflows
+-- Automation workflows (webhook-based)
 CREATE TABLE IF NOT EXISTS public.automation_workflows (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
@@ -483,7 +482,6 @@ CREATE TABLE IF NOT EXISTS public.automation_workflows (
 
   name TEXT NOT NULL,
   description TEXT,
-  n8n_workflow_id TEXT,
   webhook_url TEXT,
   trigger_type TEXT CHECK (trigger_type IN ('manual', 'scheduled', 'on_deploy', 'on_content_update')),
 

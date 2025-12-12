@@ -2,12 +2,13 @@
 # Run with: gcloud builds submit --config cloudbuild.yaml
 
 steps:
-  # Build the Docker image
+  # Build the Docker image (--no-cache to ensure fresh build with latest code)
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
+      - '--no-cache'
       - '-t'
-      - 'gcr.io/$PROJECT_ID/rankforge-workers:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/rankforge-workers:$BUILD_ID'
       - '-t'
       - 'gcr.io/$PROJECT_ID/rankforge-workers:latest'
       - '.'
@@ -16,7 +17,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'gcr.io/$PROJECT_ID/rankforge-workers:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/rankforge-workers:$BUILD_ID'
 
   - name: 'gcr.io/cloud-builders/docker'
     args:
@@ -31,7 +32,7 @@ steps:
       - 'deploy'
       - 'rankforge-workers'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/rankforge-workers:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/rankforge-workers:$BUILD_ID'
       - '--region'
       - 'us-central1'
       - '--platform'
@@ -51,7 +52,7 @@ steps:
       - 'SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_SERVICE_KEY=SUPABASE_SERVICE_KEY:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest'
 
 images:
-  - 'gcr.io/$PROJECT_ID/rankforge-workers:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/rankforge-workers:$BUILD_ID'
   - 'gcr.io/$PROJECT_ID/rankforge-workers:latest'
 
 options:

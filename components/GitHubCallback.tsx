@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, CheckCircle, XCircle } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 export const GitHubCallback: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -30,41 +30,49 @@ export const GitHubCallback: React.FC = () => {
     }
 
     try {
-      // Exchange code for access token via your backend/edge function
-      // For now, we'll simulate this - in production, you'd call a server endpoint
-      // that securely exchanges the code using your client secret
-
       setMessage('Exchanging authorization code...');
 
-      // In production, call your backend:
-      // const response = await fetch('/api/auth/github', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ code }),
-      // });
-      // const { access_token, username } = await response.json();
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
 
-      // For now, we'll show instructions since we need a backend for the token exchange
-      setStatus('error');
-      setMessage(
-        'GitHub OAuth requires a backend endpoint to securely exchange the code for an access token. ' +
-        'For now, you can manually add your GitHub Personal Access Token in the Integrations page.'
-      );
+      if (!user) {
+        setStatus('error');
+        setMessage('Please sign in to connect GitHub');
+        return;
+      }
 
-      // If we had the token, we'd save it like this:
-      // const { data: { user } } = await supabase.auth.getUser();
-      // if (user) {
-      //   await supabase.from('profiles').update({
-      //     github_access_token: access_token,
-      //     github_username: username,
-      //   }).eq('id', user.id);
-      // }
-      // setStatus('success');
-      // setMessage('GitHub connected successfully!');
+      // Call our Supabase Edge Function to exchange the code
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const redirectUri = `${window.location.origin}/auth/github/callback`;
+      const response = await fetch(`${supabaseUrl}/functions/v1/github-oauth`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({ code, userId: user.id, redirectUri }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error('GitHub OAuth error response:', data);
+        throw new Error(data.error || data.details || 'Failed to exchange code');
+      }
+
+      // Success!
+      setStatus('success');
+      setMessage(`Connected as ${data.username}!`);
+
+      // Redirect to integrations after a short delay
+      setTimeout(() => {
+        navigate('/integrations');
+      }, 2000);
 
     } catch (err: any) {
+      console.error('GitHub callback error:', err);
       setStatus('error');
-      setMessage(err.message || 'Failed to connect GitHub');
+      setMessage(err.message || 'Failed to connect GitHub. You can manually add a Personal Access Token.');
     }
   };
 
@@ -84,19 +92,14 @@ export const GitHubCallback: React.FC = () => {
             <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-slate-900">Connected!</h2>
             <p className="text-slate-500 mt-2">{message}</p>
-            <button
-              onClick={() => navigate('/integrations')}
-              className="mt-6 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors"
-            >
-              Go to Integrations
-            </button>
+            <p className="text-sm text-slate-400 mt-4">Redirecting to Integrations...</p>
           </>
         )}
 
         {status === 'error' && (
           <>
             <XCircle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-slate-900">Setup Required</h2>
+            <h2 className="text-xl font-semibold text-slate-900">Connection Issue</h2>
             <p className="text-slate-500 mt-2 text-sm">{message}</p>
             <div className="mt-6 space-y-3">
               <button
@@ -106,12 +109,12 @@ export const GitHubCallback: React.FC = () => {
                 Go to Integrations
               </button>
               <a
-                href="https://github.com/settings/tokens/new?scopes=repo,user:email&description=RankForge"
+                href="https://github.com/settings/tokens/new?scopes=repo,user:email,workflow&description=RankForge"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block w-full px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium transition-colors"
               >
-                Create GitHub Token
+                Create GitHub Token Manually
               </a>
             </div>
           </>
