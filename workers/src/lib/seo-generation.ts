@@ -806,18 +806,20 @@ export const getPhoneLink = (): string => {
  * Generate complete Next.js 14 project using multi-step comprehensive prompts
  *
  * This function uses the comprehensive prompt system to generate a production-ready
- * Next.js 14 application in 11 distinct steps:
- * 1. Configuration files (package.json, tsconfig.json, etc.)
- * 2. Docker & CI/CD files
- * 3. Core library files (types, config, utils, seo, schema)
- * 4. Data files (services, neighborhoods, reviews, faqs, blog posts)
- * 5. Layout components (Header, Footer, Navigation, etc.)
- * 6. Section components (Hero, TrustBar, ServicesGrid, etc.)
- * 7. UI & Form components (Button, Card, Input, ContactForm, etc.)
- * 8. SEO components (Schema markup components)
- * 9. Core pages (layout, homepage, about, contact, reviews)
- * 10. Dynamic pages (services/[slug], locations/[slug], blog/[slug])
- * 11. API routes (lead form, health check)
+ * Next.js 14 application in 13 distinct steps:
+ * 1. Configuration files (package.json, tsconfig.json, etc.) - STATIC TEMPLATE
+ * 2. Docker & CI/CD files - STATIC TEMPLATE
+ * 3. Core Types - STATIC TEMPLATE
+ * 4. Library files (config, utils, seo, schema) - STATIC TEMPLATE
+ * 5. Data files (services, neighborhoods, reviews, faqs) - AI GENERATED
+ * 6. UI components - AI GENERATED
+ * 7. Layout components (Header, Footer, Navigation, etc.) - AI GENERATED
+ * 8. Section components (Hero, TrustBar, ServicesGrid, etc.) - AI GENERATED
+ * 9. SEO components (Schema markup) - AI GENERATED
+ * 10. Form components - AI GENERATED
+ * 11. App pages (layout, homepage, about, etc.) - AI GENERATED
+ * 12. Dynamic pages (services/[slug], locations/[slug]) - AI GENERATED
+ * 13. API routes - STATIC TEMPLATE
  */
 export async function generateNextJSProjectComprehensive(
   input: BusinessInput,
@@ -836,46 +838,60 @@ export async function generateNextJSProjectComprehensive(
   // Convert BusinessInput to comprehensive SiteConfig
   const config = comprehensiveBusinessInputToSiteConfig(input);
 
-  // Get all generation prompts
-  const prompts = getAllGenerationPrompts(config);
-  const totalSteps = prompts.length;
+  // Get all generation prompts (includes both static templates and AI prompts)
+  const steps = getAllGenerationPrompts(config);
+  const totalSteps = steps.length;
 
   const allFiles: ComprehensiveGeneratedFile[] = [];
   let completedSteps = 0;
 
   // Process each step
-  for (const { step, name, prompt } of prompts) {
+  for (const stepDef of steps) {
+    const { step, name, prompt, isStaticTemplate, staticFiles } = stepDef;
     const stepStart = Date.now();
-    console.log(`[Comprehensive Gen] Step ${step}/${totalSteps}: ${name}...`);
+    console.log(`[Comprehensive Gen] Step ${step}/${totalSteps}: ${name}${isStaticTemplate ? ' (template)' : ' (AI)'}...`);
 
     if (onProgress) {
-      onProgress(step, totalSteps, name, `Generating ${name.toLowerCase()}...`);
+      onProgress(step, totalSteps, name, isStaticTemplate
+        ? `Applying ${name.toLowerCase()} template...`
+        : `Generating ${name.toLowerCase()} with AI...`);
     }
 
     try {
-      // Use large output model for comprehensive generation
-      const result = await largeOutputModel.generateContent(prompt);
-      const text = cleanJsonString(result.response.text());
-      const data = JSON.parse(text) as { files: ComprehensiveGeneratedFile[] };
+      let stepFiles: ComprehensiveGeneratedFile[] = [];
 
-      if (data.files && Array.isArray(data.files)) {
-        // Validate and add files
-        for (const file of data.files) {
-          if (file.path && file.content && file.content.length > 10) {
-            allFiles.push(file);
-          } else {
-            console.warn(`[Comprehensive Gen] Skipping invalid file in step ${step}: ${file.path || 'no path'}`);
+      if (isStaticTemplate && staticFiles) {
+        // Use pre-built templates directly (no AI call needed)
+        stepFiles = staticFiles;
+        console.log(`[Comprehensive Gen] Step ${step} (template): ${stepFiles.length} files added instantly`);
+      } else if (prompt) {
+        // Use AI to generate content
+        const result = await largeOutputModel.generateContent(prompt);
+        const text = cleanJsonString(result.response.text());
+        const data = JSON.parse(text) as { files: ComprehensiveGeneratedFile[] };
+
+        if (data.files && Array.isArray(data.files)) {
+          // Validate files
+          for (const file of data.files) {
+            if (file.path && file.content && file.content.length > 10) {
+              stepFiles.push(file);
+            } else {
+              console.warn(`[Comprehensive Gen] Skipping invalid file in step ${step}: ${file.path || 'no path'}`);
+            }
           }
+        } else {
+          console.error(`[Comprehensive Gen] Step ${step} returned invalid data structure`);
         }
-        console.log(`[Comprehensive Gen] Step ${step} complete: ${data.files.length} files in ${((Date.now() - stepStart) / 1000).toFixed(1)}s`);
-      } else {
-        console.error(`[Comprehensive Gen] Step ${step} returned invalid data structure`);
+
+        console.log(`[Comprehensive Gen] Step ${step} (AI): ${stepFiles.length} files in ${((Date.now() - stepStart) / 1000).toFixed(1)}s`);
       }
 
+      // Add files from this step
+      allFiles.push(...stepFiles);
       completedSteps++;
 
       if (onProgress) {
-        onProgress(step, totalSteps, name, `Completed ${name} (${data.files?.length || 0} files)`);
+        onProgress(step, totalSteps, name, `Completed ${name} (${stepFiles.length} files)`);
       }
 
     } catch (error: any) {
@@ -886,14 +902,14 @@ export async function generateNextJSProjectComprehensive(
         onProgress(step, totalSteps, name, `Failed: ${error.message}`);
       }
 
-      // For critical early steps, throw the error
-      if (step <= 3) {
-        throw new Error(`Critical step ${step} (${name}) failed: ${error.message}`);
+      // For critical early steps (templates), throw the error
+      if (isStaticTemplate) {
+        throw new Error(`Critical template step ${step} (${name}) failed: ${error.message}`);
       }
     }
 
-    // Small delay between steps to respect rate limits
-    if (step < totalSteps) {
+    // Small delay between AI steps to respect rate limits (skip for templates)
+    if (!isStaticTemplate && step < totalSteps) {
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }

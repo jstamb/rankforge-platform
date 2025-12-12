@@ -45,10 +45,11 @@ export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
 
 /**
  * Reset stale processing jobs back to pending
- * Jobs stuck in 'processing' for more than 5 minutes are considered stale
+ * Jobs stuck in 'processing' for more than 15 minutes are considered stale
+ * (Increased from 5 mins to accommodate multi-step AI generation)
  */
 export async function resetStaleJobs(): Promise<number> {
-  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
 
   const { data: staleJobs, error } = await supabase
     .from('generation_jobs')
@@ -58,7 +59,7 @@ export async function resetStaleJobs(): Promise<number> {
       current_step: 'Retrying...',
     })
     .eq('status', 'processing')
-    .lt('started_at', fiveMinutesAgo)
+    .lt('started_at', fifteenMinutesAgo)
     .select('id');
 
   if (error) {
