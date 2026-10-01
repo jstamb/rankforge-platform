@@ -1,0 +1,12 @@
+# Recipients allowed to decrypt this repo's secrets.
+# Private keys never leave their machine. Decrypt with `envpull`.
+# To enroll a machine: age-keygen there, add its public key below, then run
+# `sops updatekeys <file>.sops` from a machine that can already decrypt.
+creation_rules:
+  - path_regex: \.sops$
+    key_groups:
+      - age:
+          # omarchy-xps
+          - age1yhmg2w9rfwl78y6lj9j4ju7w6ejqdzqugushck2yn478mqf2admss3lw6p
+          # jordans-mac-studio
+          - age1vu4z09sluplg9y3l5gd6df2peafnaxv7ru645q50hxl22w7j3d7s7zljyr
