@@ -6,85 +6,51 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY as string
 );
 
-async function triggerRedeploy() {
-  // Find the dry guys website
-  const { data: websites } = await supabase
-    .from('websites')
-    .select('id, name, user_id')
-    .ilike('name', '%dry%');
+async function triggerDeployment() {
+  // Find website with recent completed site_build
+  const { data: siteBuild, error: fetchError } = await supabase
+    .from('generation_jobs')
+    .select('*')
+    .eq('job_type', 'site_build')
+    .eq('status', 'completed')
+    .not('output_result', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
 
-  if (!websites?.length) {
-    console.log('No websites found matching "dry"');
+  if (fetchError || !siteBuild) {
+    console.log('No completed site_build found:', fetchError?.message);
     return;
   }
 
-  const website = websites[0];
-  console.log('Found website:', website.name);
-  console.log('Website ID:', website.id);
-  console.log('User ID:', website.user_id);
+  console.log('Found site_build:', siteBuild.id.slice(0, 8));
+  console.log('Website ID:', siteBuild.website_id);
+  const files = (siteBuild.output_result as any)?.files || [];
+  console.log('Files in output:', files.length);
 
-  // Create a new deployment job
+  // Create new deployment job
   const { data: job, error } = await supabase
     .from('generation_jobs')
     .insert({
-      user_id: website.user_id,
-      website_id: website.id,
+      user_id: siteBuild.user_id,
+      website_id: siteBuild.website_id,
       job_type: 'deployment',
-      priority: 10,
+      priority: 1,
       status: 'pending',
-      input_payload: {
-        business: {
-          businessName: 'Dry Guys Damage Restoration Fort Worth',
-        },
-      },
+      input_payload: siteBuild.input_payload,
       total_steps: 5,
     })
     .select()
     .single();
 
   if (error) {
-    console.error('Error creating job:', error);
+    console.error('Error creating deployment job:', error);
     return;
   }
 
-  console.log('\n=== Deployment Job Created ===');
-  console.log('Job ID:', job.id);
+  console.log('\nCreated deployment job:', job.id);
   console.log('Status:', job.status);
-  console.log('\nWatching for progress...\n');
-
-  // Poll for job progress
-  let lastStatus = '';
-  let lastStep = '';
-  for (let i = 0; i < 60; i++) {
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    const { data: updated } = await supabase
-      .from('generation_jobs')
-      .select('status, current_step, progress_percent, output_result, error_details')
-      .eq('id', job.id)
-      .single();
-
-    if (!updated) continue;
-
-    // Only log if something changed
-    if (updated.status !== lastStatus || updated.current_step !== lastStep) {
-      console.log(`[${new Date().toISOString()}] Status: ${updated.status}, Step: ${updated.current_step || '(none)'}, Progress: ${updated.progress_percent || 0}%`);
-      lastStatus = updated.status;
-      lastStep = updated.current_step || '';
-    }
-
-    if (updated.status === 'completed') {
-      console.log('\n=== Job Completed ===');
-      console.log('Output:', JSON.stringify(updated.output_result, null, 2));
-      break;
-    }
-
-    if (updated.status === 'failed') {
-      console.log('\n=== Job Failed ===');
-      console.log('Error:', JSON.stringify(updated.error_details, null, 2));
-      break;
-    }
-  }
+  console.log('\nCloud Run workers will pick this up automatically.');
 }
 
-triggerRedeploy();
+triggerDeployment();

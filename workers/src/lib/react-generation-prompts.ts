@@ -20,6 +20,7 @@ export interface SiteConfig {
     city: string;
     state: string;
     zip: string;
+    full: string;
   };
   coordinates?: {
     lat: number;
@@ -173,6 +174,8 @@ export function businessInputToSiteConfig(input: {
   const cityFromAddr = addressParts[1] || input.city;
   const stateZip = addressParts[2]?.split(' ') || [input.state, ''];
 
+  const fullAddress = `${street}, ${cityFromAddr}, ${input.state} ${stateZip[1] || ''}`.trim();
+
   return {
     businessName: input.business_name,
     niche: input.niche,
@@ -187,6 +190,7 @@ export function businessInputToSiteConfig(input: {
       city: cityFromAddr,
       state: input.state,
       zip: stateZip[1] || '',
+      full: fullAddress,
     },
     googleMapsEmbedUrl: input.google_maps_embed_url,
     neighborhoods: input.neighborhoods,
@@ -453,6 +457,46 @@ Use Tailwind CSS with:
 6. Docker must expose port 8080 for Cloud Run
 7. All forms must have Zod validation
 8. Content must be unique and valuable (no lorem ipsum)
+
+## CRITICAL CONSTRAINTS - YOU MUST FOLLOW THESE EXACTLY
+
+1. **This is pure Next.js 14 App Router - NO React Router, NO Vite**:
+   - Import Link from 'next/link' (NOT from 'react-router-dom')
+   - Import Image from 'next/image'
+   - DO NOT import from 'react-router-dom' or 'react-router'
+   - DO NOT use <BrowserRouter>, <Routes>, <Route>, useNavigate, useLocation from react-router
+   - DO NOT create vite.config.ts - this is NOT a Vite project
+
+2. **Service and Neighborhood types use 'slug' for routing - NEVER 'href'**:
+   - Services have: id, name, slug, description, etc.
+   - Neighborhoods have: id, name, slug, city, etc.
+   - To build service URLs: \`/services/\${service.slug}\` (NOT service.href)
+   - To build location URLs: \`/locations/\${neighborhood.slug}\` (NOT neighborhood.href or location.href)
+   - These types DO NOT have an 'href' property - using it will cause TypeScript errors
+
+3. **Address is an object - use siteConfig.address.full for display**:
+   - siteConfig.address is: { street, city, state, zip, full }
+   - To display the full address as a string: siteConfig.address.full
+   - NEVER render siteConfig.address directly (it's an object, not a string)
+
+4. **Add 'use client' directive to ALL interactive components**:
+   - Header.tsx: 'use client' (uses useState for mobile menu, scroll state)
+   - Navigation.tsx: 'use client' (uses Radix NavigationMenu with interactions)
+   - MobileMenu.tsx: 'use client' (uses useState, Radix Accordion)
+   - ContactForm.tsx, QuoteForm.tsx: 'use client' (uses React Hook Form with state)
+   - FAQSection.tsx: 'use client' (uses Radix Accordion with state)
+   - Static display components like Footer.tsx do NOT need 'use client'
+
+5. **Required packages in package.json**:
+   - "@radix-ui/react-accordion": "^1.1.2"
+   - "@radix-ui/react-navigation-menu": "^1.1.4"
+   - "class-variance-authority": "^0.7.0"
+   - All standard Next.js 14, React 18, Tailwind deps
+
+6. **Tailwind color scales must be complete (50-900)**:
+   - Both primary and secondary colors need full scales
+   - Use CSS variables: var(--color-primary-50) through var(--color-primary-900)
+   - Same for secondary: var(--color-secondary-50) through var(--color-secondary-900)
 
 Generate the complete project now. Return ONLY valid JSON with the files array.`;
 }

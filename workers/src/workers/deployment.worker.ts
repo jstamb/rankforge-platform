@@ -66,6 +66,10 @@ export class DeploymentWorker extends BaseWorker {
       throw new Error('Business data not found');
     }
 
+    // Normalize business name field (handle both businessName and business_name formats)
+    const businessName = business.businessName || business.business_name || 'unknown-business';
+    business.businessName = businessName;
+
     // Step 1: Get user's GitHub token and site build files
     this.currentStep = 'Checking deployment credentials';
     await this.progress(job.id, this.currentStep, completedSteps, totalSteps);
@@ -430,10 +434,26 @@ export class DeploymentWorker extends BaseWorker {
   private ensureDeploymentFiles(files: GeneratedFile[], businessName: string): GeneratedFile[] {
     const serviceName = businessName.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 
-    // Detect if this is a React/Vite app that needs building
+    // Detect if this is a React/Vite/Next.js app that needs building
     const hasPackageJson = files.some(f => f.path === 'package.json');
     const hasViteConfig = files.some(f => f.path === 'vite.config.ts' || f.path === 'vite.config.js');
-    const needsBuild = hasPackageJson && hasViteConfig;
+    const hasNextConfig = files.some(f => f.path === 'next.config.js' || f.path === 'next.config.mjs' || f.path === 'next.config.ts');
+    const hasReactEntry = files.some(f => f.path === 'src/main.tsx' || f.path === 'src/main.ts' || f.path === 'src/index.tsx');
+    const hasTsxFiles = files.some(f => f.path.endsWith('.tsx') || f.path.endsWith('.ts'));
+    // Check for Next.js App Router structure
+    const hasNextAppRouter = files.some(f => f.path.startsWith('src/app/') || f.path === 'app/layout.tsx' || f.path === 'src/app/layout.tsx');
+
+    // Check if index.html references TypeScript/JSX files (indicates build required)
+    const indexHtml = files.find(f => f.path === 'index.html');
+    const indexHtmlNeedsBuild = indexHtml?.content?.includes('.tsx') || indexHtml?.content?.includes('.ts');
+
+    // Determine project type: nextjs, vite, or static
+    const isNextJS = hasNextConfig || hasNextAppRouter;
+    const isVite = hasViteConfig || hasReactEntry || indexHtmlNeedsBuild;
+    const needsBuild = hasPackageJson && (isNextJS || isVite || hasTsxFiles);
+
+    console.log(`[Deployment] Build detection: packageJson=${hasPackageJson}, viteConfig=${hasViteConfig}, nextConfig=${hasNextConfig}, nextAppRouter=${hasNextAppRouter}, reactEntry=${hasReactEntry}, indexHtmlNeedsBuild=${indexHtmlNeedsBuild}, hasTsxFiles=${hasTsxFiles}`);
+    console.log(`[Deployment] Project type: isNextJS=${isNextJS}, isVite=${isVite}, needsBuild=${needsBuild}`);
 
     // Multi-stage Dockerfile for React/Vite apps
     const viteBuildDockerfile = `# Build stage - compile React/Vite app
@@ -486,9 +506,66 @@ EXPOSE 8080
 # Start nginx
 CMD ["nginx", "-g", "daemon off;"]`;
 
+    // Next.js 14 Dockerfile with standalone output mode
+    const nextjsDockerfile = `# Next.js 14 Production Dockerfile
+# Multi-stage build for standalone output
+
+# Build stage
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install dependencies (use npm install since no package-lock.json exists)
+COPY package*.json ./
+RUN npm install --legacy-peer-deps
+
+# Copy source files
+COPY . .
+
+# Build the application
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
+
+# Production stage
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=8080
+ENV HOSTNAME="0.0.0.0"
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy standalone output
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+USER nextjs
+
+EXPOSE 8080
+
+CMD ["node", "server.js"]`;
+
     // Use appropriate Dockerfile based on project type
-    const correctDockerfile = needsBuild ? viteBuildDockerfile : staticDockerfile;
-    console.log(`[Deployment] Using ${needsBuild ? 'Vite/React build' : 'static'} Dockerfile`);
+    let correctDockerfile: string;
+    let dockerfileType: string;
+
+    if (isNextJS) {
+      correctDockerfile = nextjsDockerfile;
+      dockerfileType = 'Next.js standalone';
+    } else if (isVite || (needsBuild && !isNextJS)) {
+      correctDockerfile = viteBuildDockerfile;
+      dockerfileType = 'Vite/React build';
+    } else {
+      correctDockerfile = staticDockerfile;
+      dockerfileType = 'static';
+    }
+    console.log(`[Deployment] Using ${dockerfileType} Dockerfile`);
 
     // Correct nginx.conf with port 8080
     const correctNginxConf = `server {

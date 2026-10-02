@@ -249,6 +249,23 @@ Return as JSON:
   "robotsTxt": "User-agent: *\\nAllow: /\\nDisallow: /admin/\\nDisallow: /tmp/\\nSitemap: https://[domain]/sitemap.xml"
 }
 
+## CRITICAL CONSTRAINTS FOR NEXT.JS 14 IMPLEMENTATION:
+
+1. **All URLs use slug-based routing**:
+   - Services and neighborhoods are identified by 'slug' property, NOT 'href'
+   - Service URLs: /services/[service.slug]
+   - Location URLs: /locations/[neighborhood.slug]
+   - City+Service URLs: /[city-slug]-[service-slug]/
+
+2. **This is pure Next.js 14 App Router**:
+   - No React Router - use Next.js Link and routing
+   - No Vite - this is NOT a Vite project
+   - Dynamic routes use [slug] not :slug
+
+3. **Internal links use Next.js Link format**:
+   - <Link href="/services/drain-cleaning">
+   - NOT <Link to="/services/drain-cleaning">
+
 Generate a comprehensive architecture with ${10 + input.services.length + input.services.length + (input.neighborhoods.length * 3) + 10}+ pages.`;
 }
 

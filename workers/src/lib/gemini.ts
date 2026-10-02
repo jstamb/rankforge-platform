@@ -596,6 +596,13 @@ GENERATE THE FOLLOWING:
    - Use [LINK:slug:anchor text] for internal links
    - Include CTAs with phone number ${businessDetails.phone}
 
+CRITICAL CONSTRAINTS:
+1. This generates content for Next.js 14 App Router - NOT Vite or React Router
+2. URLs use slug-based patterns: /services/[service.slug], /locations/[location.slug]
+3. Services and neighborhoods have 'slug' property - NEVER 'href' property
+4. All components that use useState/useEffect need 'use client' directive
+5. Use next/link for navigation, NOT react-router-dom
+
 Return as a single JSON object:
 {
   "seoResearch": {
@@ -671,6 +678,14 @@ Requirements:
 6. Make it unique and professional - NOT a generic template
 7. Include micro-interactions (hover effects, transitions)
 8. Use the design system colors and styles
+
+CRITICAL CONSTRAINTS - YOU MUST FOLLOW THESE:
+1. This is Next.js 14 App Router - use 'next/link' for navigation, NOT 'react-router-dom'
+2. Add 'use client' directive at top of file if component uses useState, useEffect, or event handlers
+3. If linking to services, use \`/services/\${service.slug}\` - services have slug property, NOT href
+4. If linking to locations, use \`/locations/\${location.slug}\` - locations have slug property, NOT href
+5. For address display, use siteConfig.address.full - address is an object with {street, city, state, zip, full}
+6. DO NOT import from 'react-router-dom' or use useNavigate, useLocation from react-router
 
 Return ONLY the component code, no explanation. The code should be ready to use:
 

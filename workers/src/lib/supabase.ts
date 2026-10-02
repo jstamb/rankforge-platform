@@ -45,11 +45,11 @@ export const supabase = createClient(supabaseUrl, supabaseServiceKey, {
 
 /**
  * Reset stale processing jobs back to pending
- * Jobs stuck in 'processing' for more than 15 minutes are considered stale
- * (Increased from 5 mins to accommodate multi-step AI generation)
+ * Jobs stuck in 'processing' for more than 45 minutes are considered stale
+ * (Increased from 15 mins to accommodate multi-page AI content generation)
  */
 export async function resetStaleJobs(): Promise<number> {
-  const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  const fortyFiveMinutesAgo = new Date(Date.now() - 45 * 60 * 1000).toISOString();
 
   const { data: staleJobs, error } = await supabase
     .from('generation_jobs')
@@ -59,7 +59,7 @@ export async function resetStaleJobs(): Promise<number> {
       current_step: 'Retrying...',
     })
     .eq('status', 'processing')
-    .lt('started_at', fifteenMinutesAgo)
+    .lt('started_at', fortyFiveMinutesAgo)
     .select('id');
 
   if (error) {
@@ -238,6 +238,7 @@ export async function getTotalProcessingJobs(): Promise<number> {
 
 /**
  * Update job progress
+ * Also updates started_at to prevent stale job detection during long-running operations
  */
 export async function updateJobProgress(
   jobId: string,
@@ -254,6 +255,8 @@ export async function updateJobProgress(
       completed_steps: completedSteps,
       total_steps: totalSteps,
       progress_percent: progressPercent,
+      // Refresh started_at to prevent stale job detection
+      started_at: new Date().toISOString(),
     })
     .eq('id', jobId);
 }

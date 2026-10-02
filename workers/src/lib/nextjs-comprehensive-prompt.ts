@@ -108,6 +108,9 @@ export function getConfigFilesTemplate(config: SiteConfig): GeneratedFile[] {
           'react-dom': '^18.3.0',
           'react-hook-form': '^7.51.0',
           '@hookform/resolvers': '^3.3.4',
+          '@radix-ui/react-accordion': '^1.1.2',
+          '@radix-ui/react-navigation-menu': '^1.1.4',
+          'class-variance-authority': '^0.7.0',
           zod: '^3.22.4',
           clsx: '^2.1.0',
           'tailwind-merge': '^2.2.0',
@@ -222,8 +225,15 @@ const config: Config = {
         },
         secondary: {
           50: 'var(--color-secondary-50)',
+          100: 'var(--color-secondary-100)',
+          200: 'var(--color-secondary-200)',
+          300: 'var(--color-secondary-300)',
+          400: 'var(--color-secondary-400)',
           500: 'var(--color-secondary-500)',
           600: 'var(--color-secondary-600)',
+          700: 'var(--color-secondary-700)',
+          800: 'var(--color-secondary-800)',
+          900: 'var(--color-secondary-900)',
         },
       },
       fontFamily: {
@@ -1456,6 +1466,25 @@ Categories: general, pricing, services, process, emergency, warranty
 
 Export: faqs array, getFAQsByCategory(category) function.
 
+## CRITICAL CONSTRAINTS - YOU MUST FOLLOW THESE EXACTLY
+
+1. **Service and Neighborhood types use 'slug' for routing - NEVER 'href'**:
+   - Services have: id, name, slug, description, etc.
+   - Neighborhoods have: id, name, slug, city, etc.
+   - To build service URLs: \`/services/\${service.slug}\` (NOT service.href)
+   - To build location URLs: \`/locations/\${neighborhood.slug}\` (NOT neighborhood.href or location.href)
+
+2. **This is pure Next.js 14 App Router - NO React Router**:
+   - Use next/link for all navigation
+   - Use next/image for images
+   - DO NOT import from 'react-router-dom' or 'react-router'
+   - DO NOT use <BrowserRouter>, <Routes>, <Route>, useNavigate, useLocation from react-router
+
+3. **Address is an object - use siteConfig.address.full**:
+   - siteConfig.address is an object: { street, city, state, zip, full }
+   - To display the full address: siteConfig.address.full
+   - Never render siteConfig.address directly (it's not a string)
+
 IMPORTANT: Generate complete, production-ready TypeScript code with proper imports, types, and exports. All content must be SEO-optimized and locally relevant to ${config.city}.`;
 }
 
@@ -1595,6 +1624,37 @@ export function getLayoutComponentsPrompt(config: SiteConfig): string {
 - Schema.org BreadcrumbList markup
 - Responsive (truncates on mobile)
 
+## CRITICAL CONSTRAINTS - YOU MUST FOLLOW THESE EXACTLY
+
+1. **Add 'use client' directive** to ALL interactive components:
+   - Header.tsx: 'use client' (uses useState for mobile menu, scroll state)
+   - Navigation.tsx: 'use client' (uses Radix NavigationMenu with interactions)
+   - MobileMenu.tsx: 'use client' (uses useState, Radix Accordion)
+   - Footer.tsx: Does NOT need 'use client' (static content)
+   - Breadcrumbs.tsx: Does NOT need 'use client' (static content)
+
+2. **Use 'slug' property for routing - NEVER 'href'**:
+   - Services have a 'slug' property: service.slug
+   - Neighborhoods have a 'slug' property: neighborhood.slug or location.slug
+   - Build service links: <Link href={\`/services/\${service.slug}\`}>
+   - Build location links: <Link href={\`/locations/\${location.slug}\`}>
+   - NEVER use service.href or location.href - these properties DO NOT EXIST
+
+3. **Use siteConfig.address.full for address display**:
+   - siteConfig.address is an object: { street, city, state, zip, full }
+   - To display the full address: {siteConfig.address.full}
+   - NEVER render siteConfig.address directly (it's an object, not a string)
+
+4. **This is Next.js App Router - NO React Router**:
+   - Import Link from 'next/link'
+   - DO NOT import from 'react-router-dom'
+   - DO NOT use useNavigate, useLocation from react-router
+
+5. **Required packages are already included**:
+   - @radix-ui/react-navigation-menu: For Navigation dropdowns
+   - @radix-ui/react-accordion: For MobileMenu accordions
+   - lucide-react: For icons (Phone, Menu, X, ChevronDown, etc.)
+
 Generate complete TypeScript/React components importing from @/lib/config, @/data/services, @/data/neighborhoods.`;
 }
 
@@ -1702,6 +1762,23 @@ Props: steps: ProcessStep[], title?: string
 - Icon for each
 - Timeline style on desktop
 
+## CRITICAL CONSTRAINTS - YOU MUST FOLLOW THESE EXACTLY
+
+1. **Use 'slug' property for routing - NEVER 'href'**:
+   - Service links: <Link href={\`/services/\${service.slug}\`}>
+   - Neighborhood links: <Link href={\`/locations/\${neighborhood.slug}\`}>
+   - NEVER use service.href or neighborhood.href - these properties DO NOT EXIST
+
+2. **Add 'use client' for interactive components**:
+   - FAQSection.tsx: 'use client' (uses Radix Accordion with state)
+   - HeroForm.tsx: 'use client' (uses React Hook Form with state)
+   - ReviewsSection.tsx: If it has interactive filters/carousel, add 'use client'
+   - Static display components do NOT need 'use client'
+
+3. **This is Next.js App Router - NO React Router**:
+   - Import Link from 'next/link'
+   - DO NOT import from 'react-router-dom'
+
 Generate complete TypeScript/React components with proper imports and types.`;
 }
 
@@ -1789,6 +1866,22 @@ export function getFormComponentsPrompt(config: SiteConfig): string {
 - Success message display
 - Phone number to call
 - Expected response time
+
+## CRITICAL CONSTRAINTS - YOU MUST FOLLOW THESE EXACTLY
+
+1. **Add 'use client' to ALL form components**:
+   - ContactForm.tsx: 'use client' (uses React Hook Form with state)
+   - QuoteForm.tsx: 'use client' (uses React Hook Form with state)
+   - FormSuccess.tsx: 'use client' if it has interactive elements
+
+2. **Use service.name for dropdown options, service.slug for any routing**:
+   - For dropdown display: service.name
+   - For hidden value: service.id or service.slug
+   - NEVER use service.href
+
+3. **This is Next.js App Router - NO React Router**:
+   - If forms navigate after submission, use next/navigation useRouter
+   - DO NOT import from 'react-router-dom'
 
 Use proper TypeScript types and import from @/types.`;
 }

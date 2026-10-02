@@ -101,9 +101,10 @@ export class UnifiedGenerationWorker extends BaseWorker {
       const content = await generateAllContent(
         businessInput,
         architecture,
-        (completed, total, currentPage) => {
+        async (completed, total, currentPage) => {
           this.currentStep = `Generating content: ${completed}/${total} pages (${currentPage})`;
-          // Don't await - just update the step name for visibility
+          // Update database with progress to prevent stale job detection
+          await this.progress(job.id, this.currentStep, completedSteps, totalSteps);
         }
       );
 

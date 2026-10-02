@@ -38,3 +38,6 @@ dist-ssr
 service-account*.json
 *-credentials.json
 *-key.json
+
+# never commit: contains credential material
+/cloud-run-backups
